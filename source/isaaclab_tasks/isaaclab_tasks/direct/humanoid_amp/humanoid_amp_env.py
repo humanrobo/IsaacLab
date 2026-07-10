@@ -41,7 +41,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         # from tqdm import tqdm  # 必ずファイルの先頭か、ここでインポートしてください
 
         # パス設定（絶対パス）初期方向目標の確率分布
-        self.prob_file = "/home/matsuno/IsaacLab/scripts/reinforcement_learning/skrl/yaw_prob_distribution.pt"
+        self.prob_file = "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/yaw_prob_distribution.pt"
 
         # ログ文字列を一度組み立てる
         log_msg = "\n" + "="*50 + "\n"

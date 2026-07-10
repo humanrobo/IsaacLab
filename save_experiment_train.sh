@@ -6,13 +6,9 @@
 # ./run_experiment.sh heading_reward
 # ===============================
 EXP_NAME=$1
+DATE=$(date +"%Y%m%d_%H%M%S")
 
-if [ -z "$EXP_NAME" ]; then
-    echo "Usage: ./run_experiment.sh <experiment_name>"
-    exit 1
-fi
-
-SAVE_DIR="experiments/train/$EXP_NAME"
+SAVE_DIR="experiments/train/${DATE}_${EXP_NAME}"
 
 echo "======================================="
 echo "Experiment : $EXP_NAME"
@@ -23,6 +19,8 @@ echo "======================================="
 #--------------------------------------------------
 mkdir -p "$SAVE_DIR"/code/humanoid_amp
 mkdir -p "$SAVE_DIR"/code/agents
+mkdir -p "$SAVE_DIR"/code/skrl
+mkdir -p "$SAVE_DIR"/code/output
 mkdir -p "$SAVE_DIR"/videos
 mkdir -p "$SAVE_DIR"/checkpoints
 
@@ -30,6 +28,9 @@ mkdir -p "$SAVE_DIR"/checkpoints
 # コード保存（学習前）
 #--------------------------------------------------
 echo "Saving source code..."
+
+cp scripts/my_evaluate_project/output/yaw_prob_distribution.pt \
+   "$SAVE_DIR"/code/output/
 
 cp scripts/reinforcement_learning/skrl/train.py \
    "$SAVE_DIR"/code/skrl/

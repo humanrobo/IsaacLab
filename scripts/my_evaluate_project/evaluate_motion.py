@@ -26,7 +26,7 @@ from isaaclab.utils.math import euler_xyz_from_quat
 # ------------------------
 device = "cuda"
 motion_file = "/home/matsuno/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/motions/humanoid_walk.npz"
-state_file = "scripts/reinforcement_learning/skrl/robot_state_100000.pt"
+state_file = "scripts/my_evaluate_project/data/robot_state_latest.pt"
 
 # ------------------------
 # robot状態・インデックス読み込み
@@ -137,7 +137,7 @@ ax2.grid(axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 
 # 保存パス
-output_plot = "scripts/reinforcement_learning/skrl/yaw_gait_stats.png"
+output_plot = "scripts/my_evaluate_project/output/yaw_gait_stats.png"
 plt.savefig(output_plot)
 print(f"Graph successfully saved to: {output_plot}")
 
@@ -159,7 +159,7 @@ weighted_errors = error_tensor ** temperature
 yaw_probabilities = weighted_errors / weighted_errors.sum()
 
 # 環境（Env）側で読み込めるように辞書として保存
-distribution_file = "scripts/reinforcement_learning/skrl/yaw_prob_distribution.pt"
+distribution_file = "scripts/my_evaluate_project/output/yaw_prob_distribution.pt"
 torch.save({
     "probabilities": yaw_probabilities.cpu(), # 各Bin(0~9)の選ばれる確率
     "num_bins": 10
