@@ -1,0 +1,22 @@
+ブランチ matsuno-work
+Your branch is up to date with 'origin/matsuno-work'.
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   save_experiment_train.sh
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/__init__.py
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/h1__init__.py
+	deleted:    source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_envh1.py
+
+追跡されていないファイル:
+  (use "git add <file>..." to include in what will be committed)
+	experiments/train/20260710_195815_test_h1/
+	experiments/train/20260710_195934_test_h1/
+	scripts/reinforcement_learning/skrl/play.svg
+	scripts/reinforcement_learning/skrl/train.svg
+	source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/h1_amp_env.py
+	source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/isaaclab_tasks_direct_humanoid_amp_humanoid_amp_env.svg
+	source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/isaaclab_tasks_direct_humanoid_amp_humanoid_amp_env_cfg.svg
+
+no changes added to commit (use "git add" and/or "git commit -a")

@@ -1,17 +1,38 @@
 #!/bin/bash
 
 # ===============================
-# 実験名
 # 使い方:
-# ./run_experiment.sh heading_reward
+# ./run_experiment.sh <task_name> <experiment_name> [checkpoint]
+#
+# 例:
+# ./run_experiment.sh Isaac-Humanoid-AMP-Walk-Direct-v0 heading_reward
 # ===============================
-EXP_NAME=$1
+
+if [ -z "$1" ]; then
+    echo "Error: task name is required."
+    echo "Usage: $0 <task_name> <experiment_name> [checkpoint]"
+    exit 1
+fi
+
+if [ -z "$2" ]; then
+    echo "Error: experiment name is required."
+    echo "Usage: $0 <task_name> <experiment_name> [checkpoint]"
+    exit 1
+fi
+
+
+TASK_NAME=$1
+EXP_NAME=$2
+CHECKPOINT=$3
+
 DATE=$(date +"%Y%m%d_%H%M%S")
 
 SAVE_DIR="experiments/train/${DATE}_${EXP_NAME}"
 
 echo "======================================="
-echo "Experiment : $EXP_NAME"
+echo "Task         : $TASK_NAME"
+echo "Experiment   : $EXP_NAME"
+echo "Checkpoint   : $CHECKPOINT"
 echo "======================================="
 
 #--------------------------------------------------
@@ -60,18 +81,18 @@ git diff > "$SAVE_DIR"/git_diff.patch
 #--------------------------------------------------
 echo "Start training..."
 
-if [ -z "$2" ]; then
+if [ -z "$CHECKPOINT" ]; then
     ./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
-        --task Isaac-Humanoid-AMP-Walk-Direct-v0 \
-        --algorithm AMP  \
+        --task "$TASK_NAME" \
+        --algorithm AMP \
         --num_envs 1024 \
         --headless \
         --video
 else
     ./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
-        --task Isaac-Humanoid-AMP-Walk-Direct-v0 \
-        --checkpoint "$2" \
-        --algorithm AMP   \
+        --task "$TASK_NAME" \
+        --checkpoint "$CHECKPOINT" \
+        --algorithm AMP \
         --num_envs 1024 \
         --headless \
         --video
