@@ -194,6 +194,30 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "IO descriptors are only supported for manager based RL environments. No IO descriptors will be exported."
         )
 
+# # -----------------------------------------------------------------
+#     # ★ デバッグ専用：エラーを回避してキー一覧を強制表示
+#     # -----------------------------------------------------------------
+#     if args_cli.algorithm == "AMP":
+#         print("\n" + "="*60)
+#         print("🔍 [DEBUG] agent_cfg の最上位キー一覧:")
+#         print("-"*60)
+#         for k in agent_cfg.keys():
+#             print(f"  - {k}")
+            
+#         if "agent" in agent_cfg and isinstance(agent_cfg["agent"], dict):
+#             print("-"*60)
+#             print("🔍 [DEBUG] agent_cfg['agent'] 内部のキー一覧:")
+#             print("-"*60)
+#             for k in agent_cfg["agent"].keys():
+#                 print(f"  - {k}")
+#         print("="*60 + "\n")
+        
+#         # 構造を確認するため、ここで一度安全にプログラムを止めます
+#         import sys
+#         sys.exit(0)
+#     # -----------------------------------------------------------------
+
+
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
 

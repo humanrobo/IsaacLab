@@ -1,0 +1,3 @@
+#!/home/matsuno/IsaacLab/scripts/my_retarget_project/retarget_venv/bin/python
+from cmeel.run import cmeel_run
+cmeel_run()

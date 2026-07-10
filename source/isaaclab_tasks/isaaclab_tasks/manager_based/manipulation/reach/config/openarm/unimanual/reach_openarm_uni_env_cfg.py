@@ -32,8 +32,6 @@ import isaaclab_tasks.manager_based.manipulation.reach.mdp as mdp
 # Scene definition
 ##
 
-
-@configclass
 class ReachSceneCfg(InteractiveSceneCfg):
     """Configuration for the scene with a robotic arm."""
 

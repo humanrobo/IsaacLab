@@ -38,6 +38,15 @@ def move_to_target_bonus(
     heading_proj = obs.base_heading_proj(env, target_pos, asset_cfg).squeeze(-1)
     return torch.where(heading_proj > threshold, 1.0, heading_proj / threshold)
 
+# 追加
+def base_height_target(
+    env: ManagerBasedRLEnv,
+    target_height: float = 1.3,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """身長ターゲットへの報酬"""
+    asset: Articulation = env.scene[asset_cfg.name]
+    return -torch.abs(asset.data.root_pos_w[:, 2] - target_height)
 
 class progress_reward(ManagerTermBase):
     """Reward for making progress towards the target."""

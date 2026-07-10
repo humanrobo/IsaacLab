@@ -113,6 +113,9 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
+import pygame
+import numpy as np
+
 # PLACEHOLDER: Extension template (do not remove this comment)
 
 # config shortcuts
@@ -207,7 +210,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     print(f"[INFO] Loading model checkpoint from: {resume_path}")
     runner.agent.load(resume_path)
     # set agent to evaluation mode
-    runner.agent.set_running_mode("eval")
+    # runner.agent.set_running_mode("eval")
+    for model in runner.agent.models.values():
+        model.eval()
+
+    #追加
+    pygame.init()
+    screen = pygame.display.set_mode((200, 200))  # 重要
 
     # reset environment
     obs, _ = env.reset()
@@ -216,10 +225,25 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     while simulation_app.is_running():
         start_time = time.time()
 
+        for event in pygame.event.get():
+
+            if event.type == pygame.QUIT:
+                simulation_app.close()
+
+            if event.type == pygame.KEYDOWN:
+
+                delta_yaw = np.deg2rad(10.0)
+
+                if event.key == pygame.K_a:
+                    env.unwrapped.goal_yaw[:] += delta_yaw
+
+                if event.key == pygame.K_d:
+                    env.unwrapped.goal_yaw[:] -= delta_yaw
+
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
-            outputs = runner.agent.act(obs, timestep=0, timesteps=0)
+            outputs = runner.agent.act(obs, None, timestep=0, timesteps=0)
             # - multi-agent (deterministic) actions
             if hasattr(env, "possible_agents"):
                 actions = {a: outputs[-1][a].get("mean_actions", outputs[0][a]) for a in env.possible_agents}

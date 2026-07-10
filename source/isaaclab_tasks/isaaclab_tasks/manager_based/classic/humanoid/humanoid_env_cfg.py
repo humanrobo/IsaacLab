@@ -132,17 +132,37 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # (1) Reward for moving forward
-    progress = RewTerm(func=mdp.progress_reward, weight=1.0, params={"target_pos": (1000.0, 0.0, 0.0)})
+    # progress = RewTerm(func=mdp.progress_reward, weight=1.0, params={"target_pos": (1000.0, 0.0, 0.0)})
+    progress = RewTerm(func=mdp.progress_reward, weight=0, params={"target_pos": (1000.0, 0.0, 0.0)})
     # (2) Stay alive bonus
     alive = RewTerm(func=mdp.is_alive, weight=2.0)
     # (3) Reward for non-upright posture
-    upright = RewTerm(func=mdp.upright_posture_bonus, weight=0.1, params={"threshold": 0.93})
-    # (4) Reward for moving in the right direction
-    move_to_target = RewTerm(
-        func=mdp.move_to_target_bonus, weight=0.5, params={"threshold": 0.8, "target_pos": (1000.0, 0.0, 0.0)}
+    # upright = RewTerm(func=mdp.upright_posture_bonus, weight=0.1, params={"threshold": 0.93})
+    upright = RewTerm(func=mdp.upright_posture_bonus, weight=2.0, params={"threshold": 0.98})
+    lin_vel_penalty = RewTerm(
+        func=mdp.lin_vel_z_l2,   # Z方向速度のペナルティ（既存関数）
+        weight=-1.0
     )
+    # joint_pos_error = RewTerm(
+    #     func=mdp.joint_pos_error,
+    #     weight=-0.5
+    # )
+    ang_vel_penalty = RewTerm(
+        func=mdp.ang_vel_xy_l2,  # XY方向角速度のペナルティ（既存関数）
+        weight=-0.5
+    )
+    height_target = RewTerm(
+        func=mdp.base_height_target,
+        weight=5.0,
+        params={"target_height": 1.3}
+    )
+    # (4) Reward for moving in the right direction
+    # move_to_target = RewTerm(
+    #     func=mdp.move_to_target_bonus, weight=0.5, params={"threshold": 0.8, "target_pos": (1000.0, 0.0, 0.0)}
+    # )
     # (5) Penalty for large action commands
-    action_l2 = RewTerm(func=mdp.action_l2, weight=-0.01)
+    # action_l2 = RewTerm(func=mdp.action_l2, weight=-0.01)
+    action_l2 = RewTerm(func=mdp.action_l2, weight=-0.05)
     # (6) Penalty for energy consumption
     energy = RewTerm(
         func=mdp.power_consumption,
@@ -190,6 +210,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     # (2) Terminate if the robot falls
     torso_height = DoneTerm(func=mdp.root_height_below_minimum, params={"minimum_height": 0.8})
+    
 
 
 @configclass
