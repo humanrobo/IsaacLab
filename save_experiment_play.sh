@@ -6,13 +6,15 @@
 # ./run_experiment.sh heading_reward
 # ===============================
 EXP_NAME=$1
+CHECKPOINT=$2
+NUM_ENVS=$3
 
 if [ -z "$EXP_NAME" ]; then
     echo "Usage: ./run_experiment.sh <experiment_name>"
     exit 1
 fi
 
-SAVE_DIR="experiments/$EXP_NAME"
+SAVE_DIR="experiments/play/$EXP_NAME"
 
 echo "======================================="
 echo "Experiment : $EXP_NAME"
@@ -25,11 +27,15 @@ mkdir -p "$SAVE_DIR"/code/humanoid_amp
 mkdir -p "$SAVE_DIR"/code/agents
 mkdir -p "$SAVE_DIR"/videos
 mkdir -p "$SAVE_DIR"/checkpoints
+mkdir -p "$SAVE_DIR"/skrl
 
 #--------------------------------------------------
 # コード保存（学習前）
 #--------------------------------------------------
 echo "Saving source code..."
+
+cp scripts/reinforcement_learning/skrl/play.py \
+   "$SAVE_DIR"/code/skrl/
 
 cp source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py \
    "$SAVE_DIR"/code/humanoid_amp/
@@ -56,37 +62,17 @@ git diff > "$SAVE_DIR"/git_diff.patch
 #--------------------------------------------------
 echo "Start training..."
 
-./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
-    --task Isaac-Humanoid-AMP-Walk-Direct-v0
-
-echo "Training finished."
-
-#--------------------------------------------------
-# 最新run取得
-#--------------------------------------------------
-LATEST_RUN=$(ls -td logs/skrl/humanoid_amp_walk/* | head -n 1)
-
-echo "Latest run:"
-echo "$LATEST_RUN"
-
-#--------------------------------------------------
-# 最新動画コピー
-#--------------------------------------------------
-LATEST_VIDEO=$(find "$LATEST_RUN/videos/train" -name "*.mp4" | sort -V | tail -n 1)
-
-if [ -f "$LATEST_VIDEO" ]; then
-    cp "$LATEST_VIDEO" "$SAVE_DIR/videos/"
-    echo "Copied video."
+if [ $# -ne 3 ]; then
+    echo "Usage: $0 <experiment_name> <checkpoint> <num_envs>"
+    exit 1
 fi
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py \
+    --task Isaac-Humanoid-AMP-Walk-Direct-v0 \
+    --algorithm AMP \
+    --checkpoint "$CHECKPOINT" \
+    --num_envs "$NUM_ENVS" 
 
-#--------------------------------------------------
-# best checkpoint
-#--------------------------------------------------
-if [ -f "$LATEST_RUN/checkpoints/best_agent.pt" ]; then
-    cp "$LATEST_RUN/checkpoints/best_agent.pt" \
-       "$SAVE_DIR/checkpoints/"
-    echo "Copied best_agent.pt"
-fi
+echo "Play finished."
 
 echo "======================================="
 echo "Experiment saved!"

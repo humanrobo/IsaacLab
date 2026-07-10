@@ -25,15 +25,15 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
     """Humanoid AMP environment config (base class)."""
 
     # env
-    episode_length_s = 20.0
+    episode_length_s = 10.0
     decimation = 2
 
     # spaces
-    observation_space = 83#次元を2つ追加
+    observation_space = 81
     action_space = 28
     state_space = 0
     num_amp_observations = 2
-    amp_observation_space = 83#次元を2つ追加
+    amp_observation_space = 81
 
     early_termination = True
     termination_height = 0.5

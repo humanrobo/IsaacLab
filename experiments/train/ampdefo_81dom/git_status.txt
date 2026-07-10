@@ -1,0 +1,28 @@
+ブランチ matsuno-work
+Your branch is up to date with 'origin/matsuno-work'.
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	deleted:    experiments/heading_reward/checkpoints/best_agent.pt
+	deleted:    experiments/heading_reward/code/__init__.py
+	deleted:    experiments/heading_reward/code/humanoid_amp_env.py
+	deleted:    experiments/heading_reward/code/humanoid_amp_env_cfg.py
+	deleted:    experiments/heading_reward/code/skrl_walk_amp_cfg.yaml
+	deleted:    experiments/heading_reward/git_commit.txt
+	deleted:    experiments/heading_reward/git_diff.patch
+	deleted:    experiments/heading_reward/git_status.txt
+	deleted:    save_experiment.sh
+	modified:   scripts/reinforcement_learning/skrl/play.py
+	modified:   scripts/reinforcement_learning/skrl/robot_state_latest.pt
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+
+追跡されていないファイル:
+  (use "git add <file>..." to include in what will be committed)
+	experiments/train/
+	save_experiment_play.sh
+	save_experiment_train.sh
+
+no changes added to commit (use "git add" and/or "git commit -a")

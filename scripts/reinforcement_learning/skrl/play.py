@@ -17,6 +17,8 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+
+
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from skrl.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
@@ -112,9 +114,15 @@ from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_che
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
+#追加
+import omni
+from pxr import UsdGeom
+import omni.usd
+from pxr import Gf, UsdGeom
+from isaacsim.core.utils.viewports import set_camera_view
+import carb
+import omni.appwindow
 
-import pygame
-import numpy as np
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
@@ -214,31 +222,44 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     for model in runner.agent.models.values():
         model.eval()
 
-    #追加
-    pygame.init()
-    screen = pygame.display.set_mode((200, 200))  # 重要
-
     # reset environment
     obs, _ = env.reset()
     timestep = 0
+
+    #追加
+    stage = omni.usd.get_context().get_stage()
+    camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
+    camera_prim = camera.GetPrim()
+    camera_path = "/World/FollowCamera"
+    camera_offset = [6.0, 30.0, 8.5]
+    app_window = omni.appwindow.get_default_app_window()
+    keyboard = app_window.get_keyboard()
+    input_iface = carb.input.acquire_input_interface()
+    def on_keyboard_event(event, *args, **kwargs):
+        if event.type != carb.input.KeyboardEventType.KEY_PRESS:
+            return True
+        if event.input == carb.input.KeyboardInput.W:
+            camera_offset[0] -= 1
+        elif event.input == carb.input.KeyboardInput.S:
+            camera_offset[0] += 1
+        elif event.input == carb.input.KeyboardInput.A:
+            camera_offset[1] += 1
+        elif event.input == carb.input.KeyboardInput.D:
+            camera_offset[1] -= 1
+        elif event.input == carb.input.KeyboardInput.Q:
+            camera_offset[2] -= 1
+        elif event.input == carb.input.KeyboardInput.E:
+            camera_offset[2] += 1
+        print(camera_offset)
+        return True
+    keyboard_sub = input_iface.subscribe_to_keyboard_events(
+        keyboard,
+        on_keyboard_event,
+    )
+
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
-
-        for event in pygame.event.get():
-
-            if event.type == pygame.QUIT:
-                simulation_app.close()
-
-            if event.type == pygame.KEYDOWN:
-
-                delta_yaw = np.deg2rad(10.0)
-
-                if event.key == pygame.K_a:
-                    env.unwrapped.goal_yaw[:] += delta_yaw
-
-                if event.key == pygame.K_d:
-                    env.unwrapped.goal_yaw[:] -= delta_yaw
 
         # run everything in inference mode
         with torch.inference_mode():
@@ -252,6 +273,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 actions = outputs[-1].get("mean_actions", outputs[0])
             # env stepping
             obs, _, _, _, _ = env.step(actions)
+            #追加
+            # if timestep == 1000:
+            #     env.unwrapped.save_robot_state("robot_state.pt")
+            #     print("saved robot_state.pt")
+            robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
+            eye = [
+                float(robot_pos[0] + camera_offset[0]),
+                float(robot_pos[1] + camera_offset[1]),
+                float(robot_pos[2] + camera_offset[2]),
+            ]
+            target = [
+                float(robot_pos[0]),
+                float(robot_pos[1]),
+                float(robot_pos[2] + 1.0),
+            ]
+            set_camera_view(
+                eye=eye,
+                target=target,
+                camera_prim_path=camera_path,
+            )
+
         if args_cli.video:
             timestep += 1
             # exit the play loop after recording one video
@@ -263,6 +305,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
 
+    #追加
+    keyboard_sub = None
     # close the simulator
     env.close()
 
