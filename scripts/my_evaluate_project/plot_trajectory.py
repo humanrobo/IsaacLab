@@ -34,11 +34,19 @@ body_names = [
 
 left_id = body_names.index("left_foot")
 right_id = body_names.index("right_foot")
+root_id = body_names.index("pelvis")  # または torso
 
+root = traj[:, root_id, :]  # (step, xyz)
 left = traj[:, left_id, :]
 right = traj[:, right_id, :]
+# 手のワールド座標
 left_hand = traj[:, body_names.index("left_hand"), :]
 right_hand = traj[:, body_names.index("right_hand"), :]
+# root相対座標
+left_hand_rel = left_hand - root
+right_hand_rel = right_hand - root
+# left_hand = traj[:, body_names.index("left_hand"), :]
+# right_hand = traj[:, body_names.index("right_hand"), :]
 left_foot = traj[:, body_names.index("left_foot"), :]
 right_foot = traj[:, body_names.index("right_foot"), :]
 
@@ -53,7 +61,7 @@ plt.axis("equal")
 plt.grid(True)
 plt.legend()
 plt.savefig(os.path.join(args.output_dir, "foot_xy.png"), dpi=300)
-#足の上下
+#足の上下plot(x,y,label)x指定しないと時間になる
 plt.figure(figsize=(10,4))
 plt.plot(left_foot[:,2], label="Left foot")
 plt.plot(right_foot[:,2], label="Right foot")
@@ -64,13 +72,25 @@ plt.grid(True)
 plt.legend()
 plt.savefig(os.path.join(args.output_dir, "foot_height.png"), dpi=300)
 #手の前後
+# plt.figure(figsize=(10,4))
+# plt.plot(left_hand[:,0], label="Left hand")
+# plt.plot(right_hand[:,0], label="Right hand")
+# plt.xlabel("Step")
+# plt.ylabel("X position [m]")
+# plt.title("Hand Swing")
+# plt.grid(True)
+# plt.legend()
+# plt.savefig(os.path.join(args.output_dir, "hand_x.png"), dpi=300)
+# plt.show()
 plt.figure(figsize=(10,4))
-plt.plot(left_hand[:,0], label="Left hand")
-plt.plot(right_hand[:,0], label="Right hand")
+plt.plot(left_hand_rel[:,0], label="Left hand")
+plt.plot(right_hand_rel[:,0], label="Right hand")
 plt.xlabel("Step")
-plt.ylabel("X position [m]")
-plt.title("Hand Swing")
+plt.ylabel("Relative X [m]")
+plt.title("Hand Swing (Root Relative)")
 plt.grid(True)
 plt.legend()
-plt.savefig(os.path.join(args.output_dir, "hand_x.png"), dpi=300)
-plt.show()
+plt.savefig(
+    os.path.join(args.output_dir, "hand_swing_root_relative.png"),
+    dpi=300
+)
