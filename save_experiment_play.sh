@@ -6,19 +6,21 @@
 # ./run_experiment.sh heading_reward
 # ===============================
 EXP_NAME=$1
-CHECKPOINT=$2
-NUM_ENVS=$3
+TASK_NAME=$2
+CHECKPOINT=$3
+NUM_ENVS=$4
 
-if [ -z "$EXP_NAME" ]; then
-    echo "Usage: ./run_experiment.sh <experiment_name>"
-    exit 1
-fi
 
-SAVE_DIR="experiments/play/$EXP_NAME"
+DATE=$(date +"%Y%m%d_%H%M%S")
+
+SAVE_DIR="experiments/train/${DATE}_${EXP_NAME}"
 
 echo "======================================="
-echo "Experiment : $EXP_NAME"
+echo "Task         : $TASK_NAME"
+echo "Experiment   : $EXP_NAME"
+echo "Checkpoint   : $CHECKPOINT"
 echo "======================================="
+
 
 #--------------------------------------------------
 # 保存先作成
@@ -27,7 +29,7 @@ mkdir -p "$SAVE_DIR"/code/humanoid_amp
 mkdir -p "$SAVE_DIR"/code/agents
 mkdir -p "$SAVE_DIR"/videos
 mkdir -p "$SAVE_DIR"/checkpoints
-mkdir -p "$SAVE_DIR"/skrl
+mkdir -p "$SAVE_DIR"/code/skrl
 
 #--------------------------------------------------
 # コード保存（学習前）
@@ -62,12 +64,12 @@ git diff > "$SAVE_DIR"/git_diff.patch
 #--------------------------------------------------
 echo "Start training..."
 
-if [ $# -ne 3 ]; then
-    echo "Usage: $0 <experiment_name> <checkpoint> <num_envs>"
+if [ $# -ne 4 ]; then
+    echo "Usage: $0 <task_name> <experiment_name> <checkpoint> <num_envs>"
     exit 1
 fi
 ./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py \
-    --task Isaac-Humanoid-AMP-Walk-Direct-v0 \
+    --task "$TASK_NAME" \
     --algorithm AMP \
     --checkpoint "$CHECKPOINT" \
     --num_envs "$NUM_ENVS" 

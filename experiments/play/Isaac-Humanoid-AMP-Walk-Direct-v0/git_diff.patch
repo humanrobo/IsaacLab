@@ -1,0 +1,104 @@
+diff --git a/save_experiment_play.sh b/save_experiment_play.sh
+index 83e1f1a40..d9054f14c 100755
+--- a/save_experiment_play.sh
++++ b/save_experiment_play.sh
+@@ -8,6 +8,8 @@
+ EXP_NAME=$1
+ CHECKPOINT=$2
+ NUM_ENVS=$3
++TASK_NAME=$4
++
+ 
+ if [ -z "$EXP_NAME" ]; then
+     echo "Usage: ./run_experiment.sh <experiment_name>"
+@@ -62,12 +64,12 @@ git diff > "$SAVE_DIR"/git_diff.patch
+ #--------------------------------------------------
+ echo "Start training..."
+ 
+-if [ $# -ne 3 ]; then
+-    echo "Usage: $0 <experiment_name> <checkpoint> <num_envs>"
++if [ $# -ne 4 ]; then
++    echo "Usage: $0 <task_name> <experiment_name> <checkpoint> <num_envs>"
+     exit 1
+ fi
+ ./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py \
+-    --task Isaac-Humanoid-AMP-Walk-Direct-v0 \
++    --task "$TASK_NAME" \
+     --algorithm AMP \
+     --checkpoint "$CHECKPOINT" \
+     --num_envs "$NUM_ENVS" 
+diff --git a/scripts/reinforcement_learning/skrl/play.py b/scripts/reinforcement_learning/skrl/play.py
+index 2623a5ce8..3b54c7de4 100644
+--- a/scripts/reinforcement_learning/skrl/play.py
++++ b/scripts/reinforcement_learning/skrl/play.py
+@@ -122,6 +122,7 @@ from pxr import Gf, UsdGeom
+ from isaacsim.core.utils.viewports import set_camera_view
+ import carb
+ import omni.appwindow
++import numpy as np
+ 
+ 
+ # PLACEHOLDER: Extension template (do not remove this comment)
+@@ -227,6 +228,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+     timestep = 0
+ 
+     #追加
++    #手足先位置軌跡
++    # reset environment
++    obs, _ = env.reset()
++    timestep = 0
++    trajectory = []
++    robot = env.unwrapped.robot
++    body_names = robot.data.body_names
++    print(body_names)
++    # 保存したいbody index
++    left_foot_id = body_names.index("left_foot")
++    right_foot_id = body_names.index("right_foot")
++    # 追従カメラ
+     stage = omni.usd.get_context().get_stage()
+     camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
+     camera_prim = camera.GetPrim()
+@@ -274,9 +287,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+             # env stepping
+             obs, _, _, _, _ = env.step(actions)
+             #追加
+-            # if timestep == 1000:
+-            #     env.unwrapped.save_robot_state("robot_state.pt")
+-            #     print("saved robot_state.pt")
++            # body位置取得
++            body_pos = robot.data.body_link_pos_w[0].cpu().numpy()
++            trajectory.append(body_pos)
++            #最新のロボット状態データ保存
++            if timestep == 1000:
++                #追加
++                trajectory = np.array(trajectory)
++                np.save(
++                    "/home/IsaacLab/scripts/my_evaluate_project/output/h1_body_trajectory.npy",
++                    trajectory
++                )
++                env.unwrapped.save_robot_state("robot_state.pt")
++                print("saved robot_state.pt")
+             robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
+             eye = [
+                 float(robot_pos[0] + camera_offset[0]),
+@@ -305,7 +328,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+         if args_cli.real_time and sleep_time > 0:
+             time.sleep(sleep_time)
+ 
+-    #追加
++
++    print("saved trajectory:", trajectory.shape)
++
+     keyboard_sub = None
+     # close the simulator
+     env.close()
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 1eda652c1..301564d31 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:ca995c9dbfcd2e51b8e7f6f02071b4423489f0e3e6d3a1fecc0ba36eeca3e575
+-size 261536
++oid sha256:023a57eeba0ede2588ee95ac99b7902d3f2430d8b4dec895408700349b03fbc5
++size 3552
