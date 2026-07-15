@@ -206,16 +206,18 @@ class HumanoidAmpEnv(DirectRLEnv):
             torch.ones_like(heading_cos),
         )
 
+
         #入力変数の形状を確認するためのデバッグ出力
-        # if not hasattr(self, "_printed_shape"):
-        #     self._printed_shape = True
-        #     print("joint_pos      :", self.robot.data.joint_pos.shape)
-        #     print("joint_vel      :", self.robot.data.joint_vel.shape)
-        #     print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
-        #     print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
-        #     print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
-        #     print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
-        #     print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
+        if not hasattr(self, "_printed_shape"):
+            self._printed_shape = True
+
+            print("joint_pos      :", self.robot.data.joint_pos.shape)
+            print("joint_vel      :", self.robot.data.joint_vel.shape)
+            print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
+            print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
+            print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
+            print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
+            print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):

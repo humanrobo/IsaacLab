@@ -1,0 +1,22 @@
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index a9ce02eae..a2ad37da5 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:43f1740ed7a985c34faf5230112dd86b11d1377f442f9e801c587e8bbcb2e47a
++oid sha256:8b446e7987259ba4b7caf351974856121b395ec142ce83234a94321bc922362b
+ size 3616
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index c691e98c3..5660cd26b 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -336,7 +336,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #     - torch.pi
+         # )#世界座標基準（ワールド基準）の yaw
+         #追加 初期の目標の向きをランダムにしている
+-        self.goal_yaw[env_ids] = torch.pi
++        self.goal_yaw[env_ids] = torch.pi*0.5
+         # self.goal_yaw[env_ids] = torch.pi / 3
+ 
+     # reset strategies
