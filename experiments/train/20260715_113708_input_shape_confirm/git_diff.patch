@@ -1,0 +1,59 @@
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/h1_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/h1_amp_env.py
+index b6dcf8dc4..5be12ccca 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/h1_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/h1_amp_env.py
+@@ -221,6 +221,21 @@ class HumanoidAmpEnv(DirectRLEnv):
+             torch.ones_like(heading_cos),
+         )
+ 
++        #入力変数の形状を確認するためのデバッグ出力
++        if not hasattr(self, "_printed_shape"):
++            self._printed_shape = True
++            print("joint_pos      :", self.robot.data.joint_pos.shape)
++            print("joint_vel      :", self.robot.data.joint_vel.shape)
++            print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
++            print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
++            print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
++            print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
++            print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
++            self._printed_joint_names = True
++            print("Joint names:")
++            for i, name in enumerate(self.robot.data.joint_names):
++                print(f"{i:2d}: {name}")
++
+         # update AMP observation history
+         for i in reversed(range(self.cfg.num_amp_observations - 1)):
+             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 59bbe7e91..7e6f44d9b 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -207,15 +207,19 @@ class HumanoidAmpEnv(DirectRLEnv):
+         )
+ 
+         #入力変数の形状を確認するためのデバッグ出力
+-        # if not hasattr(self, "_printed_shape"):
+-        #     self._printed_shape = True
+-        #     print("joint_pos      :", self.robot.data.joint_pos.shape)
+-        #     print("joint_vel      :", self.robot.data.joint_vel.shape)
+-        #     print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
+-        #     print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
+-        #     print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
+-        #     print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
+-        #     print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
++        if not hasattr(self, "_printed_shape"):
++            self._printed_shape = True
++            print("joint_pos      :", self.robot.data.joint_pos.shape)
++            print("joint_vel      :", self.robot.data.joint_vel.shape)
++            print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
++            print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
++            print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
++            print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
++            print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
++            self._printed_joint_names = True
++            print("Joint names:")
++            for i, name in enumerate(self.robot.data.joint_names):
++                print(f"{i:2d}: {name}")
+ 
+         # update AMP observation history
+         for i in reversed(range(self.cfg.num_amp_observations - 1)):

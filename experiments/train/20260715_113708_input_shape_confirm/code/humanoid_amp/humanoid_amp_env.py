@@ -15,8 +15,7 @@ from isaaclab.envs import DirectRLEnv
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.math import quat_apply, quat_apply_inverse
 
-# from .humanoid_amp_env_cfg import HumanoidAmpEnvCfg
-from .h1_amp_env_cfg import HumanoidAmpEnvCfg
+from .humanoid_amp_env_cfg import HumanoidAmpEnvCfg
 from .motions import MotionLoader
 #追加
 from isaaclab.utils.math import quat_apply, euler_xyz_from_quat
@@ -25,12 +24,12 @@ from tqdm import tqdm
 import os
 
 
-
 class HumanoidAmpEnv(DirectRLEnv):
     cfg: HumanoidAmpEnvCfg
 
     def __init__(self, cfg: HumanoidAmpEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+        # --- クラスの初期化（__init__など）に追加 ---------------------
         # # 確認用コード（実行するとターミナルにリンク名一覧が出ます）
         # print("--- H1 Robot Available Body Names ---")
         # print(self.robot.data.body_names)
@@ -38,10 +37,11 @@ class HumanoidAmpEnv(DirectRLEnv):
         # print(self.robot.data.body_names)
         # print("-------------------------------------")
         
-# --- クラスの初期化（__init__など）に追加 ---
+        # import torch
+        # from tqdm import tqdm  # 必ずファイルの先頭か、ここでインポートしてください
 
-        # パス設定（絶対パス）
-        self.prob_file = "/home/matsuno/IsaacLab/scripts/reinforcement_learning/skrl/yaw_prob_distribution.pt"
+        # パス設定（絶対パス）初期方向目標の確率分布
+        self.prob_file = "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/yaw_prob_distribution.pt"
 
         # ログ文字列を一度組み立てる
         log_msg = "\n" + "="*50 + "\n"
@@ -63,6 +63,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         log_msg += "="*50 + "\n"
         # tqdm.write を使ってプログレスバーを壊さずに出力！
         tqdm.write(log_msg)
+        # --- クラスの初期化（__init__など）に追加終了 ----------------
 
         #追加
         self.goal_yaw = torch.zeros(self.num_envs, device=self.device)
@@ -71,33 +72,18 @@ class HumanoidAmpEnv(DirectRLEnv):
         dof_upper_limits = self.robot.data.soft_joint_pos_limits[0, :, 1]
         self.action_offset = 0.5 * (dof_upper_limits + dof_lower_limits)
         self.action_scale = dof_upper_limits - dof_lower_limits
-
-        #追加 humanoid_amp_env.py の 63行目付近にこれを書いておく
-        # humanoid_amp_env.py
-        # self.cfg.motion_file = "/home/matsuno/IsaacLab/scripts/my_amp_project/data/h1_walk_for_isaaclab.npz"
         
         # load motion
         self._motion_loader = MotionLoader(motion_file=self.cfg.motion_file, device=self.device)
 
         # DOF and key body indexes
-        # 🎯 H1の正しいリンク名リストに更新！
-        key_body_names = ["left_elbow_link", "right_elbow_link", "left_ankle_link", "right_ankle_link"]
+        # 元デフォのhuamnoidリンク名
+        key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
         self.ref_body_index = self.robot.data.body_names.index(self.cfg.reference_body)
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
-        # 1. まずパスを削除
-        raw_joint_names = [name.split("/")[-1] for name in self.robot.data.joint_names]
-        # 2. _joint がない場合のみ補完する
-        joint_names = [name if name.endswith("_joint") else f"{name}_joint" for name in raw_joint_names]
-        # 3. 読み込み
-        self.motion_dof_indexes = self._motion_loader.get_dof_index(joint_names)
+        self.motion_dof_indexes = self._motion_loader.get_dof_index(self.robot.data.joint_names)
         self.motion_ref_body_index = self._motion_loader.get_body_index([self.cfg.reference_body])[0]
         self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
-        # key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
-        # self.ref_body_index = self.robot.data.body_names.index(self.cfg.reference_body)
-        # self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
-        # self.motion_dof_indexes = self._motion_loader.get_dof_index(self.robot.data.joint_names)
-        # self.motion_ref_body_index = self._motion_loader.get_body_index([self.cfg.reference_body])[0]
-        # self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
 
         # reconfigure AMP observation space according to the number of observations and create the buffer
         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
@@ -165,7 +151,6 @@ class HumanoidAmpEnv(DirectRLEnv):
 # -----------------------------------------------------------
         # 3. すべてのデータを「Yawをキャンセルしたローカル座標系」に変換
         # -----------------------------------------------------------
-        # ルートのYawを打ち消すためのクォータニオン
         (
             local_root_pos,
             local_root_rot,
@@ -180,30 +165,30 @@ class HumanoidAmpEnv(DirectRLEnv):
             key_pos_w,
         )
 
-        policy_obs = compute_obs(
-            self.robot.data.joint_pos,
-            self.robot.data.joint_vel,
-            local_root_pos,
-            local_root_rot,
-            local_lin_vel,
-            local_ang_vel,
-            local_key_pos,
-            heading_sin,
-            heading_cos,
-        )
+        # policy_obs = compute_obs(
+        #     self.robot.data.joint_pos,
+        #     self.robot.data.joint_vel,
+        #     local_root_pos,
+        #     local_root_rot,
+        #     local_lin_vel,
+        #     local_ang_vel,
+        #     local_key_pos,
+        #     heading_sin,
+        #     heading_cos,
+        # )
 
         # -----------------------------------------------------------
         # 4. 各Observationの組み立て
         # -----------------------------------------------------------
-        # 【修正】Policy Obs を完全にローカル化
-        policy_obs = compute_obs(
+        # world座標系のままのObservation
+        policy_obs = compute_obs0(
             self.robot.data.joint_pos,
             self.robot.data.joint_vel,
-            local_root_pos,
-            local_root_rot,
-            local_lin_vel,
-            local_ang_vel,
-            local_key_pos,
+            self.robot.data.body_pos_w[:, self.ref_body_index],
+            self.robot.data.body_quat_w[:, self.ref_body_index],
+            self.robot.data.body_lin_vel_w[:, self.ref_body_index],
+            self.robot.data.body_ang_vel_w[:, self.ref_body_index],
+            self.robot.data.body_pos_w[:, self.key_body_indexes],
             heading_sin,
             heading_cos,
         )
@@ -244,6 +229,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
 
 
+        #ロボットの方向に対する人歩行らしさを判定し、分布を出力
         if self.common_step_counter % 1000 == 0:
                     # evaluate_motion.py と同じフォルダの絶対パスを指定
                     output_dir = "/home/matsuno/IsaacLab/scripts/reinforcement_learning/skrl"
@@ -286,7 +272,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             ],
             dim=-1,
         )
-        target_speed = 1.0
+        target_speed = 0.7
         desired_veldir = target_speed * goal_dir
         # 速度誤差
         veldir_error = torch.sum(
@@ -301,6 +287,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             + heading_reward   
         )
 
+        # 1000ステップごとにログを出力
         if self.common_step_counter % 1000 == 0:
             tqdm.write(
                 f"step={self.common_step_counter} "
@@ -364,7 +351,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         #     - torch.pi
         # )#世界座標基準（ワールド基準）の yaw
         #追加 初期の目標の向きをランダムにしている
-        # self.goal_yaw[env_ids] = torch.pi 
+        self.goal_yaw[env_ids] = torch.pi*0.55
         # self.goal_yaw[env_ids] = torch.pi / 3
 
     # reset strategies
@@ -391,11 +378,11 @@ class HumanoidAmpEnv(DirectRLEnv):
             body_linear_velocities,
             body_angular_velocities,
         ) = self._motion_loader.sample(num_samples=num_samples, times=times)
-
-        # get root transforms (the humanoid torso)
-        # motion_torso_index = self._motion_loader.get_body_index(["torso"])[0]
+        
         # H1ロボットの正しい部位名 'pelvis' に修正します
-        motion_torso_index = self._motion_loader.get_body_index(["pelvis"])[0]
+        # motion_torso_index = self._motion_loader.get_body_index(["pelvis"])[0]
+        # get root transforms (the humanoid torso)
+        motion_torso_index = self._motion_loader.get_body_index(["torso"])[0]
         root_state = self.robot.data.default_root_state[env_ids].clone()
         root_state[:, 0:3] = body_positions[:, motion_torso_index] + self.scene.env_origins[env_ids]
         root_state[:, 2] += 0.15  # lift the humanoid slightly to avoid collisions with the ground
@@ -475,6 +462,7 @@ def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:#世界座
     normal = quat_apply(q, ref_normal)
     return torch.cat([tangent, normal], dim=len(tangent.shape) - 1)
 
+
 @torch.jit.script
 def localize_observation(
     root_pos: torch.Tensor,
@@ -491,37 +479,28 @@ def localize_observation(
 ]:
     # RootのYawを打ち消すクォータニオン
     q_yaw_inv = quat_conjugate(yaw_quat(root_rot))
-
     # Root位置（XYを消して高さだけ残す）
     local_root_pos = root_pos.clone()
     local_root_pos[:, 0:2] = 0.0
-
     # Root姿勢（Yaw除去）
     local_root_rot = quat_mul(q_yaw_inv, root_rot)
-
     # Root速度
     local_root_lin_vel = quat_apply_inverse(yaw_quat(root_rot), root_lin_vel)
     local_root_ang_vel = quat_apply_inverse(yaw_quat(root_rot), root_ang_vel)
-
     # 手足位置
     rel_key_pos = key_body_pos - root_pos.unsqueeze(1)
-
     num_envs = rel_key_pos.shape[0]
     num_keys = rel_key_pos.shape[1]
-
     flat_rel_key_pos = rel_key_pos.view(-1, 3)
-
     repeated_q_yaw_inv = (
         q_yaw_inv.unsqueeze(1)
         .repeat(1, num_keys, 1)
         .view(-1, 4)
     )
-
     flat_local_key_pos = quat_apply_inverse(
         repeated_q_yaw_inv,
         flat_rel_key_pos,
     )
-
     local_key_pos = flat_local_key_pos.view(num_envs, num_keys, 3)
 
     return (
@@ -531,7 +510,6 @@ def localize_observation(
         local_root_ang_vel,
         local_key_pos,
     )
-
 
 @torch.jit.script
 def compute_obs(
@@ -562,3 +540,38 @@ def compute_obs(
         dim=-1,
     )
     return obs
+
+@torch.jit.script
+def compute_obs0(
+    dof_positions: torch.Tensor,
+    dof_velocities: torch.Tensor,
+    root_positions: torch.Tensor,
+    root_rotations: torch.Tensor,
+    root_linear_velocities: torch.Tensor,
+    root_angular_velocities: torch.Tensor,
+    key_body_positions: torch.Tensor,
+    #追加
+    heading_sin: torch.Tensor,
+    heading_cos: torch.Tensor,
+) -> torch.Tensor:
+    obs = torch.cat(
+        (
+            dof_positions,
+            dof_velocities,
+            root_positions[:, 2:3],  # root body height
+            quaternion_to_tangent_and_normal(root_rotations),
+            root_linear_velocities,
+            root_angular_velocities,
+            (key_body_positions - root_positions.unsqueeze(-2)).view(key_body_positions.shape[0], -1),
+            #追加
+            heading_sin.unsqueeze(-1),
+            heading_cos.unsqueeze(-1),
+        ),
+        dim=-1,
+    )
+    return obs
+
+
+
+
+
