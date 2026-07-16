@@ -1,0 +1,29 @@
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 36cec655b..939bb9d76 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -118,14 +118,16 @@ class HumanoidAmpEnv(DirectRLEnv):
+         light_cfg.func("/World/Light", light_cfg)
+ 
+     def _pre_physics_step(self, actions: torch.Tensor):
+-        # 1. ノイズの定義 (std=0.05は調整してください)
+-        noise_std = 0.05
+-        # 2. ガウシアンノイズの生成
+-        noise = torch.randn_like(actions) * noise_std
+-        # 3. アクションに加算
+-        noisy_actions = actions + noise
+-        # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
+-        self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
++        # # 1. ノイズの定義 (std=0.05は調整してください)
++        # noise_std = 0.05
++        # # 2. ガウシアンノイズの生成
++        # noise = torch.randn_like(actions) * noise_std
++        # # 3. アクションに加算
++        # noisy_actions = actions + noise
++        # # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
++        # self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
++        #デフォルト
++        self.actions = actions
+ 
+     def _apply_action(self):
+         target = self.action_offset + self.action_scale * self.actions

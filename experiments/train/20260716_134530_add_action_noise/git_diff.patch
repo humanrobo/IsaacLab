@@ -1,0 +1,127 @@
+diff --git a/robot_state_latest.pt b/robot_state_latest.pt
+index c65451395..b5754e823 100644
+--- a/robot_state_latest.pt
++++ b/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:5fdda8e4eb4f6ca349f0d81e0abc6912210f71c84588b38523af9ee51ed14ba3
++oid sha256:aa956e83a8ea069b42d62500d114cc9074aec2207949cd7d0fa4eb063223b24f
+ size 264914
+diff --git a/scripts/my_evaluate_project/data/robot_state_latest.pt b/scripts/my_evaluate_project/data/robot_state_latest.pt
+index 138f6bd7f..ecccd7fc0 100644
+--- a/scripts/my_evaluate_project/data/robot_state_latest.pt
++++ b/scripts/my_evaluate_project/data/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:29f0cefef325c6528bfd71a8d66fa8a4484cc2dae8d18ad4b7aea104f978e385
+-size 335264
++oid sha256:21751bb541ca43f9224a967283880e314845ff92041c46203501270fca9a7274
++size 339623
+diff --git a/scripts/my_evaluate_project/evaluate_motion.py b/scripts/my_evaluate_project/evaluate_motion.py
+index 8c5599250..221505c45 100644
+--- a/scripts/my_evaluate_project/evaluate_motion.py
++++ b/scripts/my_evaluate_project/evaluate_motion.py
+@@ -33,11 +33,12 @@ state_file = "scripts/my_evaluate_project/data/robot_state_latest.pt"
+ # ------------------------
+ print(f"Loading state file: {state_file}")
+ data = torch.load(state_file, map_location=device)
++print(data.keys())
+ 
+ joint_pos = data["joint_pos"]
+ joint_vel = data["joint_vel"]
+ root_pos = data["root_pos"]
+-root_rot = data["root_rot"]
++root_rot = data["root_quat"]
+ root_lin_vel = data["root_lin_vel"]
+ root_ang_vel = data["root_ang_vel"]
+ key_pos = data["key_pos"]
+@@ -102,8 +103,13 @@ for b in range(10):
+     count = idx.sum().item()
+     counts.append(count)
+     
++    max_error = best_error.max().item()
+     if count == 0:
+-        errors.append(0.0)
++        errors.append(max_error)
++
++        low_deg = -180 + b * 36
++        high_deg = low_deg + 36
++        print(f"Angle {low_deg:4d}° to {high_deg:4d}° (Center: {angle_labels[b]:>5s}): N={count:4d} error={max_error:7.4f}")
+         continue
+     
+     mean_err = best_error[idx].mean().item()
+diff --git a/scripts/reinforcement_learning/skrl/play.py b/scripts/reinforcement_learning/skrl/play.py
+index 839b5a407..bac480373 100644
+--- a/scripts/reinforcement_learning/skrl/play.py
++++ b/scripts/reinforcement_learning/skrl/play.py
+@@ -305,7 +305,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+             body_pos = robot.data.body_link_pos_w[0].cpu().numpy()
+             trajectory.append(body_pos)
+             #最新のロボット状態データ保存
+-            if timestep == 1000:
++            if timestep == 5000:
+                 #追加
+                 trajectory_array = np.array(trajectory)
+                 print(len(trajectory))
+@@ -313,13 +313,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+                     "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/h1_body_trajectory.npy",
+                     trajectory_array
+                 )
++                print(hasattr(env.unwrapped.robot.data, "body_pos_w"))
+                 torch.save({
+                     "root_pos": env.unwrapped.robot.data.root_pos_w.cpu(),
+                     "root_quat": env.unwrapped.robot.data.root_quat_w.cpu(),
++                    "root_lin_vel": env.unwrapped.robot.data.root_lin_vel_w.cpu(),
++                    "root_ang_vel": env.unwrapped.robot.data.root_ang_vel_w.cpu(),
+                     "joint_pos": env.unwrapped.robot.data.joint_pos.cpu(),
+                     "joint_vel": env.unwrapped.robot.data.joint_vel.cpu(),
++                    "key_pos": env.unwrapped.robot.data.body_pos_w[
++                        :, env.unwrapped.motion_key_body_indexes
++                    ].cpu(),
++                    "motion_ref_body_index": env.unwrapped.motion_ref_body_index,
++                    "motion_key_body_indexes": env.unwrapped.motion_key_body_indexes,
++                    "motion_dof_indexes": env.unwrapped.motion_dof_indexes,
+                     "goal_yaw": env.unwrapped.goal_yaw.cpu(),
+-                }, "robot_state_latest.pt")
++                }, "scripts/my_evaluate_project/data/robot_state_latest.pt")
+                 print("saved robot_state.pt")
+             robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
+             # eye = [
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 09f1c2f18..6e258e123 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:8876af9c0a5639eae5d6b70cedd6c111c7457cb6bbffb612fbdf6d65b077e911
++oid sha256:5e714711c5acab1293cf736ff7da078f7e45661f12551c61918b9f10fded5d5e
+ size 335264
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 36cec655b..939bb9d76 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -118,14 +118,16 @@ class HumanoidAmpEnv(DirectRLEnv):
+         light_cfg.func("/World/Light", light_cfg)
+ 
+     def _pre_physics_step(self, actions: torch.Tensor):
+-        # 1. ノイズの定義 (std=0.05は調整してください)
+-        noise_std = 0.05
+-        # 2. ガウシアンノイズの生成
+-        noise = torch.randn_like(actions) * noise_std
+-        # 3. アクションに加算
+-        noisy_actions = actions + noise
+-        # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
+-        self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
++        # # 1. ノイズの定義 (std=0.05は調整してください)
++        # noise_std = 0.05
++        # # 2. ガウシアンノイズの生成
++        # noise = torch.randn_like(actions) * noise_std
++        # # 3. アクションに加算
++        # noisy_actions = actions + noise
++        # # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
++        # self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
++        #デフォルト
++        self.actions = actions
+ 
+     def _apply_action(self):
+         target = self.action_offset + self.action_scale * self.actions

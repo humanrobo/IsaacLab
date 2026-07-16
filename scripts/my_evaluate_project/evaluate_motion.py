@@ -33,11 +33,12 @@ state_file = "scripts/my_evaluate_project/data/robot_state_latest.pt"
 # ------------------------
 print(f"Loading state file: {state_file}")
 data = torch.load(state_file, map_location=device)
+print(data.keys())
 
 joint_pos = data["joint_pos"]
 joint_vel = data["joint_vel"]
 root_pos = data["root_pos"]
-root_rot = data["root_rot"]
+root_rot = data["root_quat"]
 root_lin_vel = data["root_lin_vel"]
 root_ang_vel = data["root_ang_vel"]
 key_pos = data["key_pos"]
@@ -102,8 +103,13 @@ for b in range(10):
     count = idx.sum().item()
     counts.append(count)
     
+    max_error = best_error.max().item()
     if count == 0:
-        errors.append(0.0)
+        errors.append(max_error)
+
+        low_deg = -180 + b * 36
+        high_deg = low_deg + 36
+        print(f"Angle {low_deg:4d}° to {high_deg:4d}° (Center: {angle_labels[b]:>5s}): N={count:4d} error={max_error:7.4f}")
         continue
     
     mean_err = best_error[idx].mean().item()

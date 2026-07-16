@@ -1,0 +1,103 @@
+diff --git a/robot_state_latest.pt b/robot_state_latest.pt
+index c65451395..6b523024c 100644
+--- a/robot_state_latest.pt
++++ b/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:5fdda8e4eb4f6ca349f0d81e0abc6912210f71c84588b38523af9ee51ed14ba3
++oid sha256:f77b5fcd66267fbbc7fe18a3ab46e699d3fcebb2dc6f167337b1ce61628765ad
+ size 264914
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 09f1c2f18..a4ee0c47e 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:8876af9c0a5639eae5d6b70cedd6c111c7457cb6bbffb612fbdf6d65b077e911
++oid sha256:d406fc690df08a4d0c4aaf88b89d44b085974dac07d42729a7a0f46d8746dd08
+ size 335264
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 36cec655b..b32c9d2fe 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -118,14 +118,16 @@ class HumanoidAmpEnv(DirectRLEnv):
+         light_cfg.func("/World/Light", light_cfg)
+ 
+     def _pre_physics_step(self, actions: torch.Tensor):
+-        # 1. ノイズの定義 (std=0.05は調整してください)
+-        noise_std = 0.05
+-        # 2. ガウシアンノイズの生成
+-        noise = torch.randn_like(actions) * noise_std
+-        # 3. アクションに加算
+-        noisy_actions = actions + noise
+-        # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
+-        self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
++        # # 1. ノイズの定義 (std=0.05は調整してください)
++        # noise_std = 0.05
++        # # 2. ガウシアンノイズの生成
++        # noise = torch.randn_like(actions) * noise_std
++        # # 3. アクションに加算
++        # noisy_actions = actions + noise
++        # # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
++        # self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
++        #デフォルト
++        self.actions = actions
+ 
+     def _apply_action(self):
+         target = self.action_offset + self.action_scale * self.actions
+@@ -331,32 +333,32 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
+         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+-        # if self.use_biased_yaw:
+-        #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
+-        #     # replacement=True で重複を許して環境の数だけ引く
+-        #     chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
++        if self.use_biased_yaw:
++            # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
++            # replacement=True で重複を許して環境の数だけ引く
++            chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
+             
+-        #     # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
+-        #     bin_width = 2.0 * torch.pi / 10.0
+-        #     low_angles = -torch.pi + chosen_bins.float() * bin_width
++            # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
++            bin_width = 2.0 * torch.pi / 10.0
++            low_angles = -torch.pi + chosen_bins.float() * bin_width
+             
+-        #     # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
+-        #     # これにより「特定のBinの中のどこか」に綺麗に分散させる
+-        #     rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
+-        #     self.goal_yaw[env_ids] = low_angles + rand_offset
++            # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
++            # これにより「特定のBinの中のどこか」に綺麗に分散させる
++            rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
++            self.goal_yaw[env_ids] = low_angles + rand_offset
+             
+-        # else:
+-        #     # ファイルがない場合は従来通りの完全一様ランダム
+-        #     self.goal_yaw[env_ids] = (
+-        #         torch.rand(len(env_ids), device=self.device)
+-        #         * 2.0 * torch.pi
+-        #         - torch.pi
+-        #     )
+-        self.goal_yaw[env_ids] = (
+-            torch.rand(len(env_ids), device=self.device)
+-            * 2.0 * torch.pi
+-            - torch.pi
+-        )#世界座標基準（ワールド基準）の yaw
++        else:
++            # ファイルがない場合は従来通りの完全一様ランダム
++            self.goal_yaw[env_ids] = (
++                torch.rand(len(env_ids), device=self.device)
++                * 2.0 * torch.pi
++                - torch.pi
++            )
++        # self.goal_yaw[env_ids] = (
++        #     torch.rand(len(env_ids), device=self.device)
++        #     * 2.0 * torch.pi
++        #     - torch.pi
++        # )#世界座標基準（ワールド基準）の yaw
+         #追加 初期の目標の向きをランダムにしている
+         # self.goal_yaw[env_ids] = torch.pi*0.55
+         # self.goal_yaw[env_ids] = torch.pi / 3

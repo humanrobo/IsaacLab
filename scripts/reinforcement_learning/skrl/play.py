@@ -305,7 +305,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             body_pos = robot.data.body_link_pos_w[0].cpu().numpy()
             trajectory.append(body_pos)
             #最新のロボット状態データ保存
-            if timestep == 1000:
+            if timestep == 5000:
                 #追加
                 trajectory_array = np.array(trajectory)
                 print(len(trajectory))
@@ -313,13 +313,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                     "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/h1_body_trajectory.npy",
                     trajectory_array
                 )
+                print(hasattr(env.unwrapped.robot.data, "body_pos_w"))
                 torch.save({
                     "root_pos": env.unwrapped.robot.data.root_pos_w.cpu(),
                     "root_quat": env.unwrapped.robot.data.root_quat_w.cpu(),
+                    "root_lin_vel": env.unwrapped.robot.data.root_lin_vel_w.cpu(),
+                    "root_ang_vel": env.unwrapped.robot.data.root_ang_vel_w.cpu(),
                     "joint_pos": env.unwrapped.robot.data.joint_pos.cpu(),
                     "joint_vel": env.unwrapped.robot.data.joint_vel.cpu(),
+                    "key_pos": env.unwrapped.robot.data.body_pos_w[
+                        :, env.unwrapped.motion_key_body_indexes
+                    ].cpu(),
+                    "motion_ref_body_index": env.unwrapped.motion_ref_body_index,
+                    "motion_key_body_indexes": env.unwrapped.motion_key_body_indexes,
+                    "motion_dof_indexes": env.unwrapped.motion_dof_indexes,
                     "goal_yaw": env.unwrapped.goal_yaw.cpu(),
-                }, "robot_state_latest.pt")
+                }, "scripts/my_evaluate_project/data/robot_state_latest.pt")
                 print("saved robot_state.pt")
             robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
             # eye = [
