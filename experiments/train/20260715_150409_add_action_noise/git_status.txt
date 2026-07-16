@@ -1,0 +1,19 @@
+ブランチ matsuno-work
+Your branch is up to date with 'origin/matsuno-work'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   scripts/reinforcement_learning/skrl/robot_state_latest.pt
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+
+追跡されていないファイル:
+  (use "git add <file>..." to include in what will be committed)
+	experiments/train/20260715_141258_add_action_noise/
+	experiments/train/20260715_142506_add_action_noise/
+	experiments/train/20260715_145944_add_action_noise/
+	experiments/train/20260715_150230_add_action_noise/
+	experiments/train/20260715_150409_add_action_noise/
+
+no changes added to commit (use "git add" and/or "git commit -a")

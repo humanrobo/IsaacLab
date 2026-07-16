@@ -120,10 +120,13 @@ class HumanoidAmpEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         # 1. ノイズの定義 (std=0.05は調整してください)
         noise_std = 0.05
+        
         # 2. ガウシアンノイズの生成
         noise = torch.randn_like(actions) * noise_std
+        
         # 3. アクションに加算
         noisy_actions = actions + noise
+        
         # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
         self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
 
@@ -214,19 +217,19 @@ class HumanoidAmpEnv(DirectRLEnv):
         )
 
         #入力変数の形状を確認するためのデバッグ出力
-        # if not hasattr(self, "_printed_shape"):
-        #     self._printed_shape = True
-        #     print("joint_pos      :", self.robot.data.joint_pos.shape)
-        #     print("joint_vel      :", self.robot.data.joint_vel.shape)
-        #     print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
-        #     print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
-        #     print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
-        #     print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
-        #     print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
-        #     self._printed_joint_names = True
-        #     print("Joint names:")
-        #     for i, name in enumerate(self.robot.data.joint_names):
-        #         print(f"{i:2d}: {name}")
+        if not hasattr(self, "_printed_shape"):
+            self._printed_shape = True
+            print("joint_pos      :", self.robot.data.joint_pos.shape)
+            print("joint_vel      :", self.robot.data.joint_vel.shape)
+            print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
+            print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
+            print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
+            print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
+            print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
+            self._printed_joint_names = True
+            print("Joint names:")
+            for i, name in enumerate(self.robot.data.joint_names):
+                print(f"{i:2d}: {name}")
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
@@ -352,13 +355,13 @@ class HumanoidAmpEnv(DirectRLEnv):
         #         * 2.0 * torch.pi
         #         - torch.pi
         #     )
-        self.goal_yaw[env_ids] = (
-            torch.rand(len(env_ids), device=self.device)
-            * 2.0 * torch.pi
-            - torch.pi
-        )#世界座標基準（ワールド基準）の yaw
+        # self.goal_yaw[env_ids] = (
+        #     torch.rand(len(env_ids), device=self.device)
+        #     * 2.0 * torch.pi
+        #     - torch.pi
+        # )#世界座標基準（ワールド基準）の yaw
         #追加 初期の目標の向きをランダムにしている
-        # self.goal_yaw[env_ids] = torch.pi*0.55
+        self.goal_yaw[env_ids] = torch.pi*0.55
         # self.goal_yaw[env_ids] = torch.pi / 3
 
     # reset strategies

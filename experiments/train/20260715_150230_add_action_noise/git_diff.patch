@@ -1,0 +1,119 @@
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index b4685685f..9058a237e 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:27956d266c6bb85f9024cc24d866cdc7db29fb1893c83ca8da2bcabe32aabf66
+-size 261536
++oid sha256:d59b7a727e16cb3c5981942fb4ae6af2c5237933aeb548b97e5fe2da1cc61c49
++size 335264
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+index a5b0c052f..acda0464c 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+@@ -91,7 +91,7 @@ agent:
+   value_loss_scale: 2.5
+   discriminator_loss_scale: 5.0
+   amp_batch_size: 512
+-  task_reward_scale: 0 #テスト
++  task_reward_scale: 0.2 #テスト
+   style_reward_scale: 1.0
+   # task_reward_scale: 0.2 # task_reward_weight → task_reward_scale
+   # style_reward_scale: 1.0                   # style_reward_weight → style_reward_scale
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 5dc307f26..13a472ad6 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -217,19 +217,19 @@ class HumanoidAmpEnv(DirectRLEnv):
+         )
+ 
+         #入力変数の形状を確認するためのデバッグ出力
+-        if not hasattr(self, "_printed_shape"):
+-            self._printed_shape = True
+-            print("joint_pos      :", self.robot.data.joint_pos.shape)
+-            print("joint_vel      :", self.robot.data.joint_vel.shape)
+-            print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
+-            print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
+-            print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
+-            print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
+-            print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
+-            self._printed_joint_names = True
+-            print("Joint names:")
+-            for i, name in enumerate(self.robot.data.joint_names):
+-                print(f"{i:2d}: {name}")
++        # if not hasattr(self, "_printed_shape"):
++        #     self._printed_shape = True
++        #     print("joint_pos      :", self.robot.data.joint_pos.shape)
++        #     print("joint_vel      :", self.robot.data.joint_vel.shape)
++        #     print("root_pos       :", self.robot.data.body_pos_w[:, self.ref_body_index].shape)
++        #     print("root_quat      :", self.robot.data.body_quat_w[:, self.ref_body_index].shape)
++        #     print("lin_vel        :", self.robot.data.body_lin_vel_w[:, self.ref_body_index].shape)
++        #     print("ang_vel        :", self.robot.data.body_ang_vel_w[:, self.ref_body_index].shape)
++        #     print("key_body_pos   :", self.robot.data.body_pos_w[:, self.key_body_indexes].shape)
++        #     self._printed_joint_names = True
++        #     print("Joint names:")
++        #     for i, name in enumerate(self.robot.data.joint_names):
++        #         print(f"{i:2d}: {name}")
+ 
+         # update AMP observation history
+         for i in reversed(range(self.cfg.num_amp_observations - 1)):
+@@ -334,34 +334,34 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
+         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+-        # if self.use_biased_yaw:
+-        #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
+-        #     # replacement=True で重複を許して環境の数だけ引く
+-        #     chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
++        if self.use_biased_yaw:
++            # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
++            # replacement=True で重複を許して環境の数だけ引く
++            chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
+             
+-        #     # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
+-        #     bin_width = 2.0 * torch.pi / 10.0
+-        #     low_angles = -torch.pi + chosen_bins.float() * bin_width
++            # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
++            bin_width = 2.0 * torch.pi / 10.0
++            low_angles = -torch.pi + chosen_bins.float() * bin_width
+             
+-        #     # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
+-        #     # これにより「特定のBinの中のどこか」に綺麗に分散させる
+-        #     rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
+-        #     self.goal_yaw[env_ids] = low_angles + rand_offset
++            # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
++            # これにより「特定のBinの中のどこか」に綺麗に分散させる
++            rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
++            self.goal_yaw[env_ids] = low_angles + rand_offset
+             
+-        # else:
+-        #     # ファイルがない場合は従来通りの完全一様ランダム
+-        #     self.goal_yaw[env_ids] = (
+-        #         torch.rand(len(env_ids), device=self.device)
+-        #         * 2.0 * torch.pi
+-        #         - torch.pi
+-        #     )
+-        # self.goal_yaw[env_ids] = (
+-        #     torch.rand(len(env_ids), device=self.device)
+-        #     * 2.0 * torch.pi
+-        #     - torch.pi
+-        # )#世界座標基準（ワールド基準）の yaw
++        else:
++            # ファイルがない場合は従来通りの完全一様ランダム
++            self.goal_yaw[env_ids] = (
++                torch.rand(len(env_ids), device=self.device)
++                * 2.0 * torch.pi
++                - torch.pi
++            )
++        self.goal_yaw[env_ids] = (
++            torch.rand(len(env_ids), device=self.device)
++            * 2.0 * torch.pi
++            - torch.pi
++        )#世界座標基準（ワールド基準）の yaw
+         #追加 初期の目標の向きをランダムにしている
+-        self.goal_yaw[env_ids] = torch.pi*0.55
++        # self.goal_yaw[env_ids] = torch.pi*0.55
+         # self.goal_yaw[env_ids] = torch.pi / 3
+ 
+     # reset strategies

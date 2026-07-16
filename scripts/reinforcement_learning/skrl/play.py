@@ -121,7 +121,7 @@ import omni.usd
 from pxr import Gf, UsdGeom
 from isaacsim.core.utils.viewports import set_camera_view
 import carb
-import omni.appwindow
+# import omni.appwindow
 import numpy as np
 import pygame
 import numpy as np
@@ -243,50 +243,50 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     left_foot_id = body_names.index("left_foot")
     right_foot_id = body_names.index("right_foot")
     # 追従カメラ
-    stage = omni.usd.get_context().get_stage()
-    camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
-    camera_prim = camera.GetPrim()
-    camera_path = "/World/FollowCamera"
-    camera_offset = [6.0, 30.0, 8.5]
-    app_window = omni.appwindow.get_default_app_window()
-    keyboard = app_window.get_keyboard()
-    input_iface = carb.input.acquire_input_interface()
-    def on_keyboard_event(event, *args, **kwargs):
-        if event.type != carb.input.KeyboardEventType.KEY_PRESS:
-            return True
-        if event.input == carb.input.KeyboardInput.W:
-            camera_offset[0] -= 1
-        elif event.input == carb.input.KeyboardInput.S:
-            camera_offset[0] += 1
-        elif event.input == carb.input.KeyboardInput.A:
-            camera_offset[1] += 1
-        elif event.input == carb.input.KeyboardInput.D:
-            camera_offset[1] -= 1
-        elif event.input == carb.input.KeyboardInput.Q:
-            camera_offset[2] -= 1
-        elif event.input == carb.input.KeyboardInput.E:
-            camera_offset[2] += 1
-        print(camera_offset)
-        return True
-    keyboard_sub = input_iface.subscribe_to_keyboard_events(
-        keyboard,
-        on_keyboard_event,
-    )
+    # stage = omni.usd.get_context().get_stage()
+    # camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
+    # camera_prim = camera.GetPrim()
+    # camera_path = "/World/FollowCamera"
+    # camera_offset = [6.0, 30.0, 8.5]
+    # app_window = omni.appwindow.get_default_app_window()
+    # keyboard = app_window.get_keyboard()
+    # input_iface = carb.input.acquire_input_interface()
+    # def on_keyboard_event(event, *args, **kwargs):
+    #     if event.type != carb.input.KeyboardEventType.KEY_PRESS:
+    #         return True
+    #     if event.input == carb.input.KeyboardInput.W:
+    #         camera_offset[0] -= 1
+    #     elif event.input == carb.input.KeyboardInput.S:
+    #         camera_offset[0] += 1
+    #     elif event.input == carb.input.KeyboardInput.A:
+    #         camera_offset[1] += 1
+    #     elif event.input == carb.input.KeyboardInput.D:
+    #         camera_offset[1] -= 1
+    #     elif event.input == carb.input.KeyboardInput.Q:
+    #         camera_offset[2] -= 1
+    #     elif event.input == carb.input.KeyboardInput.E:
+    #         camera_offset[2] += 1
+    #     print(camera_offset)
+    #     return True
+    # keyboard_sub = input_iface.subscribe_to_keyboard_events(
+    #     keyboard,
+    #     on_keyboard_event,
+    # )
 
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
 
         #追加キーボード
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                simulation_app.close()
-            if event.type == pygame.KEYDOWN:
-                delta_yaw = np.deg2rad(10.0)
-                if event.key == pygame.K_a:
-                    env.unwrapped.goal_yaw[:] += delta_yaw
-                if event.key == pygame.K_d:
-                    env.unwrapped.goal_yaw[:] -= delta_yaw
+        # for event in pygame.event.get():
+        #     if event.type == pygame.QUIT:
+        #         simulation_app.close()
+        #     if event.type == pygame.KEYDOWN:
+        #         delta_yaw = np.deg2rad(10.0)
+        #         if event.key == pygame.K_a:
+        #             env.unwrapped.goal_yaw[:] += delta_yaw
+        #         if event.key == pygame.K_d:
+        #             env.unwrapped.goal_yaw[:] -= delta_yaw
 
         # run everything in inference mode
         with torch.inference_mode():
@@ -313,24 +313,30 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                     "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/h1_body_trajectory.npy",
                     trajectory_array
                 )
-                # env.unwrapped.save_robot_state("robot_state.pt")
+                torch.save({
+                    "root_pos": env.unwrapped.robot.data.root_pos_w.cpu(),
+                    "root_quat": env.unwrapped.robot.data.root_quat_w.cpu(),
+                    "joint_pos": env.unwrapped.robot.data.joint_pos.cpu(),
+                    "joint_vel": env.unwrapped.robot.data.joint_vel.cpu(),
+                    "goal_yaw": env.unwrapped.goal_yaw.cpu(),
+                }, "robot_state_latest.pt")
                 print("saved robot_state.pt")
             robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
-            eye = [
-                float(robot_pos[0] + camera_offset[0]),
-                float(robot_pos[1] + camera_offset[1]),
-                float(robot_pos[2] + camera_offset[2]),
-            ]
-            target = [
-                float(robot_pos[0]),
-                float(robot_pos[1]),
-                float(robot_pos[2] + 1.0),
-            ]
-            set_camera_view(
-                eye=eye,
-                target=target,
-                camera_prim_path=camera_path,
-            )
+            # eye = [
+            #     float(robot_pos[0] + camera_offset[0]),
+            #     float(robot_pos[1] + camera_offset[1]),
+            #     float(robot_pos[2] + camera_offset[2]),
+            # ]
+            # target = [
+            #     float(robot_pos[0]),
+            #     float(robot_pos[1]),
+            #     float(robot_pos[2] + 1.0),
+            # ]
+            # set_camera_view(
+            #     eye=eye,
+            #     target=target,
+            #     camera_prim_path=camera_path,
+            # )
 
         timestep += 1
         # exit the play loop after recording one video
