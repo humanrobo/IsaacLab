@@ -1,0 +1,293 @@
+diff --git a/scripts/my_evaluate_project/data/robot_state_latest.pt b/scripts/my_evaluate_project/data/robot_state_latest.pt
+index ecccd7fc0..c2a533776 100644
+--- a/scripts/my_evaluate_project/data/robot_state_latest.pt
++++ b/scripts/my_evaluate_project/data/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:21751bb541ca43f9224a967283880e314845ff92041c46203501270fca9a7274
++oid sha256:c8f1fa5b64266ad57e01a9684cc69a5d830bc8564a33c1a0e5aa430a771ec7a9
+ size 339623
+diff --git a/scripts/reinforcement_learning/skrl/play.py b/scripts/reinforcement_learning/skrl/play.py
+index 6bfea12bb..bac480373 100644
+--- a/scripts/reinforcement_learning/skrl/play.py
++++ b/scripts/reinforcement_learning/skrl/play.py
+@@ -121,7 +121,7 @@ import omni.usd
+ from pxr import Gf, UsdGeom
+ from isaacsim.core.utils.viewports import set_camera_view
+ import carb
+-import omni.appwindow
++# import omni.appwindow
+ import numpy as np
+ import pygame
+ import numpy as np
+@@ -243,50 +243,50 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+     left_foot_id = body_names.index("left_foot")
+     right_foot_id = body_names.index("right_foot")
+     # 追従カメラ
+-    stage = omni.usd.get_context().get_stage()
+-    camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
+-    camera_prim = camera.GetPrim()
+-    camera_path = "/World/FollowCamera"
+-    camera_offset = [6.0, 30.0, 8.5]
+-    app_window = omni.appwindow.get_default_app_window()
+-    keyboard = app_window.get_keyboard()
+-    input_iface = carb.input.acquire_input_interface()
+-    def on_keyboard_event(event, *args, **kwargs):
+-        if event.type != carb.input.KeyboardEventType.KEY_PRESS:
+-            return True
+-        if event.input == carb.input.KeyboardInput.W:
+-            camera_offset[0] -= 1
+-        elif event.input == carb.input.KeyboardInput.S:
+-            camera_offset[0] += 1
+-        elif event.input == carb.input.KeyboardInput.A:
+-            camera_offset[1] += 1
+-        elif event.input == carb.input.KeyboardInput.D:
+-            camera_offset[1] -= 1
+-        elif event.input == carb.input.KeyboardInput.Q:
+-            camera_offset[2] -= 1
+-        elif event.input == carb.input.KeyboardInput.E:
+-            camera_offset[2] += 1
+-        print(camera_offset)
+-        return True
+-    keyboard_sub = input_iface.subscribe_to_keyboard_events(
+-        keyboard,
+-        on_keyboard_event,
+-    )
++    # stage = omni.usd.get_context().get_stage()
++    # camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
++    # camera_prim = camera.GetPrim()
++    # camera_path = "/World/FollowCamera"
++    # camera_offset = [6.0, 30.0, 8.5]
++    # app_window = omni.appwindow.get_default_app_window()
++    # keyboard = app_window.get_keyboard()
++    # input_iface = carb.input.acquire_input_interface()
++    # def on_keyboard_event(event, *args, **kwargs):
++    #     if event.type != carb.input.KeyboardEventType.KEY_PRESS:
++    #         return True
++    #     if event.input == carb.input.KeyboardInput.W:
++    #         camera_offset[0] -= 1
++    #     elif event.input == carb.input.KeyboardInput.S:
++    #         camera_offset[0] += 1
++    #     elif event.input == carb.input.KeyboardInput.A:
++    #         camera_offset[1] += 1
++    #     elif event.input == carb.input.KeyboardInput.D:
++    #         camera_offset[1] -= 1
++    #     elif event.input == carb.input.KeyboardInput.Q:
++    #         camera_offset[2] -= 1
++    #     elif event.input == carb.input.KeyboardInput.E:
++    #         camera_offset[2] += 1
++    #     print(camera_offset)
++    #     return True
++    # keyboard_sub = input_iface.subscribe_to_keyboard_events(
++    #     keyboard,
++    #     on_keyboard_event,
++    # )
+ 
+     # simulate environment
+     while simulation_app.is_running():
+         start_time = time.time()
+ 
+         #追加キーボード
+-        for event in pygame.event.get():
+-            if event.type == pygame.QUIT:
+-                simulation_app.close()
+-            if event.type == pygame.KEYDOWN:
+-                delta_yaw = np.deg2rad(10.0)
+-                if event.key == pygame.K_a:
+-                    env.unwrapped.goal_yaw[:] += delta_yaw
+-                if event.key == pygame.K_d:
+-                    env.unwrapped.goal_yaw[:] -= delta_yaw
++        # for event in pygame.event.get():
++        #     if event.type == pygame.QUIT:
++        #         simulation_app.close()
++        #     if event.type == pygame.KEYDOWN:
++        #         delta_yaw = np.deg2rad(10.0)
++        #         if event.key == pygame.K_a:
++        #             env.unwrapped.goal_yaw[:] += delta_yaw
++        #         if event.key == pygame.K_d:
++        #             env.unwrapped.goal_yaw[:] -= delta_yaw
+ 
+         # run everything in inference mode
+         with torch.inference_mode():
+@@ -331,21 +331,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+                 }, "scripts/my_evaluate_project/data/robot_state_latest.pt")
+                 print("saved robot_state.pt")
+             robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
+-            eye = [
+-                float(robot_pos[0] + camera_offset[0]),
+-                float(robot_pos[1] + camera_offset[1]),
+-                float(robot_pos[2] + camera_offset[2]),
+-            ]
+-            target = [
+-                float(robot_pos[0]),
+-                float(robot_pos[1]),
+-                float(robot_pos[2] + 1.0),
+-            ]
+-            set_camera_view(
+-                eye=eye,
+-                target=target,
+-                camera_prim_path=camera_path,
+-            )
++            # eye = [
++            #     float(robot_pos[0] + camera_offset[0]),
++            #     float(robot_pos[1] + camera_offset[1]),
++            #     float(robot_pos[2] + camera_offset[2]),
++            # ]
++            # target = [
++            #     float(robot_pos[0]),
++            #     float(robot_pos[1]),
++            #     float(robot_pos[2] + 1.0),
++            # ]
++            # set_camera_view(
++            #     eye=eye,
++            #     target=target,
++            #     camera_prim_path=camera_path,
++            # )
+ 
+         timestep += 1
+         # exit the play loop after recording one video
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index a04f753e3..1cee10681 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:7d05d21d0254bda41379307997b191c3c37d710908a2be59fe2a9e00d258f84d
+-size 3616
++oid sha256:bab1fc4f4e73d1ee7a587a21e12b7dc2d5aeb6be090164ffe3a1148b1526a7c9
++size 335264
+diff --git a/scripts/reinforcement_learning/skrl/train.py b/scripts/reinforcement_learning/skrl/train.py
+index 0fb300e06..0985678cb 100644
+--- a/scripts/reinforcement_learning/skrl/train.py
++++ b/scripts/reinforcement_learning/skrl/train.py
+@@ -223,7 +223,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
+ 
+     # create isaac environment
+     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+-    env.unwrapped.use_action_noise = True
++    env.unwrapped.use_action_noise = False
+ 
+     # convert to single-agent instance if required by the RL algorithm
+     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 8afa0cff7..0ecb73dae 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -32,7 +32,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # --- クラスの初期化（__init__など）に追加 ---------------------
+         # # 確認用コード（実行するとターミナルにリンク名一覧が出ます）
+         # print("--- H1 Robot Available Body Names ---")
+-        # print(self.robot.data.body_names)
++        print(self.robot.data.body_names)
+         # print(self.robot.data.joint_names)
+         # print(self.robot.data.body_names)
+         # print("-------------------------------------")
+@@ -72,6 +72,14 @@ class HumanoidAmpEnv(DirectRLEnv):
+         dof_upper_limits = self.robot.data.soft_joint_pos_limits[0, :, 1]
+         self.action_offset = 0.5 * (dof_upper_limits + dof_lower_limits)
+         self.action_scale = dof_upper_limits - dof_lower_limits
++        self.left_shin_idx = self.robot.body_names.index("left_shin")
++        self.right_shin_idx = self.robot.body_names.index("right_shin")
++
++        self.knee_down_count = torch.zeros(
++            self.num_envs,
++            dtype=torch.int32,
++            device=self.device,
++        )
+ 
+         self.use_action_noise = False
+         
+@@ -121,7 +129,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+ 
+     def _pre_physics_step(self, actions: torch.Tensor):
+         if self.use_action_noise:
+-            tqdm.write("Action noise: ON")
++            # print("Action noise: ON")
+             noise_std = 0.05
+             noise = torch.randn_like(actions) * noise_std
+             actions = actions + noise
+@@ -269,7 +277,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # 高さ制限
+         root_height = self.robot.data.body_pos_w[:, self.ref_body_index, 2]
+         height_reward = torch.exp(
+-            -10.0 * (root_height - 1.0) ** 2
++            -5.0 * (root_height - 1.0) ** 2
+         )
+         # 目標方向
+         goal_dir = torch.stack(
+@@ -287,7 +295,9 @@ class HumanoidAmpEnv(DirectRLEnv):
+             dim=-1,
+         )
+         veldir_reward = torch.exp(-veldir_error)#y=e^-x
+-        heading_reward = torch.clamp(torch.cos(self.heading_error), 0.0, 1.0) # 安定化（負を潰す）
++        heading_reward = torch.exp(
++            -5.0 * self.heading_error**2
++        )
+         reward = (
+             veldir_reward
+             + height_reward
+@@ -312,6 +322,18 @@ class HumanoidAmpEnv(DirectRLEnv):
+             died = self.robot.data.body_pos_w[:, self.ref_body_index, 2] < self.cfg.termination_height
+         else:
+             died = torch.zeros_like(time_out)
++        left_shin_h = self.robot.data.body_pos_w[:, self.left_shin_idx, 2]
++        right_shin_h = self.robot.data.body_pos_w[:, self.right_shin_idx, 2]
++        shin_height_thresh = 0.1
++        shin_down = (
++            (left_shin_h < shin_height_thresh)
++            & (right_shin_h < shin_height_thresh)
++        )
++        # 膝立ち継続カウント
++        self.knee_down_count[shin_down] += 1
++        self.knee_down_count[~shin_down] = 0
++        # 20ステップ以上続いたら終了
++        died |= self.knee_down_count >= 20
+         return died, time_out
+ 
+     def _reset_idx(self, env_ids: torch.Tensor | None):
+@@ -331,27 +353,27 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
+         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+-        # if self.use_biased_yaw:
+-        #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
+-        #     # replacement=True で重複を許して環境の数だけ引く
+-        #     chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
++        if self.use_biased_yaw:
++            # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
++            # replacement=True で重複を許して環境の数だけ引く
++            chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
+             
+-        #     # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
+-        #     bin_width = 2.0 * torch.pi / 10.0
+-        #     low_angles = -torch.pi + chosen_bins.float() * bin_width
++            # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
++            bin_width = 2.0 * torch.pi / 10.0
++            low_angles = -torch.pi + chosen_bins.float() * bin_width
+             
+-        #     # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
+-        #     # これにより「特定のBinの中のどこか」に綺麗に分散させる
+-        #     rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
+-        #     self.goal_yaw[env_ids] = low_angles + rand_offset
++            # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
++            # これにより「特定のBinの中のどこか」に綺麗に分散させる
++            rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
++            self.goal_yaw[env_ids] = low_angles + rand_offset
+             
+-        # else:
+-        #     # ファイルがない場合は従来通りの完全一様ランダム
+-        #     self.goal_yaw[env_ids] = (
+-        #         torch.rand(len(env_ids), device=self.device)
+-        #         * 2.0 * torch.pi
+-        #         - torch.pi
+-        #     )
++        else:
++            # ファイルがない場合は従来通りの完全一様ランダム
++            self.goal_yaw[env_ids] = (
++                torch.rand(len(env_ids), device=self.device)
++                * 2.0 * torch.pi
++                - torch.pi
++            )
+         # self.goal_yaw[env_ids] = (
+         #     torch.rand(len(env_ids), device=self.device)
+         #     * 2.0 * torch.pi

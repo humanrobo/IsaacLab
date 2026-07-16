@@ -1,0 +1,40 @@
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index a04f753e3..32448f2d2 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:7d05d21d0254bda41379307997b191c3c37d710908a2be59fe2a9e00d258f84d
+-size 3616
++oid sha256:4a41fec74ce4952b53a2c8368afdd67190e909033ebd25d0b3474a201c5d25bb
++size 335264
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 8afa0cff7..7524f0ad5 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -121,7 +121,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+ 
+     def _pre_physics_step(self, actions: torch.Tensor):
+         if self.use_action_noise:
+-            tqdm.write("Action noise: ON")
++            print("Action noise: ON")
+             noise_std = 0.05
+             noise = torch.randn_like(actions) * noise_std
+             actions = actions + noise
+@@ -352,11 +352,11 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #         * 2.0 * torch.pi
+         #         - torch.pi
+         #     )
+-        # self.goal_yaw[env_ids] = (
+-        #     torch.rand(len(env_ids), device=self.device)
+-        #     * 2.0 * torch.pi
+-        #     - torch.pi
+-        # )#世界座標基準（ワールド基準）の yaw
++        self.goal_yaw[env_ids] = (
++            torch.rand(len(env_ids), device=self.device)
++            * 2.0 * torch.pi
++            - torch.pi
++        )#世界座標基準（ワールド基準）の yaw
+         #追加 初期の目標の向きをランダムにしている
+         # self.goal_yaw[env_ids] = torch.pi*0.55
+         # self.goal_yaw[env_ids] = torch.pi / 3

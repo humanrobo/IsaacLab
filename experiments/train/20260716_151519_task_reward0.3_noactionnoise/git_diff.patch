@@ -1,0 +1,34 @@
+diff --git a/scripts/reinforcement_learning/skrl/train.py b/scripts/reinforcement_learning/skrl/train.py
+index 0fb300e06..128093e3a 100644
+--- a/scripts/reinforcement_learning/skrl/train.py
++++ b/scripts/reinforcement_learning/skrl/train.py
+@@ -223,7 +223,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
+ 
+     # create isaac environment
+     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+-    env.unwrapped.use_action_noise = True
++    env.unwrapped.use_action_noise = False  # disable action noise for training
+ 
+     # convert to single-agent instance if required by the RL algorithm
+     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 8afa0cff7..6c634b559 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -352,11 +352,11 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #         * 2.0 * torch.pi
+         #         - torch.pi
+         #     )
+-        # self.goal_yaw[env_ids] = (
+-        #     torch.rand(len(env_ids), device=self.device)
+-        #     * 2.0 * torch.pi
+-        #     - torch.pi
+-        # )#世界座標基準（ワールド基準）の yaw
++        self.goal_yaw[env_ids] = (
++            torch.rand(len(env_ids), device=self.device)
++            * 2.0 * torch.pi
++            - torch.pi
++        )#世界座標基準（ワールド基準）の yaw
+         #追加 初期の目標の向きをランダムにしている
+         # self.goal_yaw[env_ids] = torch.pi*0.55
+         # self.goal_yaw[env_ids] = torch.pi / 3
