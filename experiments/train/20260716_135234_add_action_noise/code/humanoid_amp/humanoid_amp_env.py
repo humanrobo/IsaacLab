@@ -72,8 +72,6 @@ class HumanoidAmpEnv(DirectRLEnv):
         dof_upper_limits = self.robot.data.soft_joint_pos_limits[0, :, 1]
         self.action_offset = 0.5 * (dof_upper_limits + dof_lower_limits)
         self.action_scale = dof_upper_limits - dof_lower_limits
-
-        self.use_action_noise = False
         
         # load motion
         self._motion_loader = MotionLoader(motion_file=self.cfg.motion_file, device=self.device)
@@ -120,12 +118,16 @@ class HumanoidAmpEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor):
-        if self.use_action_noise:
-            tqdm.write("Action noise: ON")
-            noise_std = 0.05
-            noise = torch.randn_like(actions) * noise_std
-            actions = actions + noise
-        self.actions = torch.clamp(actions, -1.0, 1.0)
+        # # 1. ノイズの定義 (std=0.05は調整してください)
+        # noise_std = 0.05
+        # # 2. ガウシアンノイズの生成
+        # noise = torch.randn_like(actions) * noise_std
+        # # 3. アクションに加算
+        # noisy_actions = actions + noise
+        # # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
+        # self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
+        #デフォルト
+        self.actions = actions
 
     def _apply_action(self):
         target = self.action_offset + self.action_scale * self.actions
@@ -352,11 +354,11 @@ class HumanoidAmpEnv(DirectRLEnv):
         #         * 2.0 * torch.pi
         #         - torch.pi
         #     )
-        # self.goal_yaw[env_ids] = (
-        #     torch.rand(len(env_ids), device=self.device)
-        #     * 2.0 * torch.pi
-        #     - torch.pi
-        # )#世界座標基準（ワールド基準）の yaw
+        self.goal_yaw[env_ids] = (
+            torch.rand(len(env_ids), device=self.device)
+            * 2.0 * torch.pi
+            - torch.pi
+        )#世界座標基準（ワールド基準）の yaw
         #追加 初期の目標の向きをランダムにしている
         # self.goal_yaw[env_ids] = torch.pi*0.55
         # self.goal_yaw[env_ids] = torch.pi / 3

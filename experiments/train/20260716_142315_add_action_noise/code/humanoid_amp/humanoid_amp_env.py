@@ -72,8 +72,6 @@ class HumanoidAmpEnv(DirectRLEnv):
         dof_upper_limits = self.robot.data.soft_joint_pos_limits[0, :, 1]
         self.action_offset = 0.5 * (dof_upper_limits + dof_lower_limits)
         self.action_scale = dof_upper_limits - dof_lower_limits
-
-        self.use_action_noise = False
         
         # load motion
         self._motion_loader = MotionLoader(motion_file=self.cfg.motion_file, device=self.device)
@@ -120,12 +118,16 @@ class HumanoidAmpEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor):
-        if self.use_action_noise:
-            tqdm.write("Action noise: ON")
-            noise_std = 0.05
-            noise = torch.randn_like(actions) * noise_std
-            actions = actions + noise
-        self.actions = torch.clamp(actions, -1.0, 1.0)
+        # 1. ノイズの定義 (std=0.05は調整してください)
+        noise_std = 0.05
+        # 2. ガウシアンノイズの生成
+        noise = torch.randn_like(actions) * noise_std
+        # 3. アクションに加算
+        noisy_actions = actions + noise
+        # 4. クリップ処理（ロボットの動作範囲を逸脱しないように）
+        self.actions = torch.clamp(noisy_actions, -1.0, 1.0)
+        # デフォルト
+        # self.actions = actions
 
     def _apply_action(self):
         target = self.action_offset + self.action_scale * self.actions
@@ -331,27 +333,27 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-        # if self.use_biased_yaw:
-        #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
-        #     # replacement=True で重複を許して環境の数だけ引く
-        #     chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
+        if self.use_biased_yaw:
+            # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
+            # replacement=True で重複を許して環境の数だけ引く
+            chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
             
-        #     # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
-        #     bin_width = 2.0 * torch.pi / 10.0
-        #     low_angles = -torch.pi + chosen_bins.float() * bin_width
+            # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
+            bin_width = 2.0 * torch.pi / 10.0
+            low_angles = -torch.pi + chosen_bins.float() * bin_width
             
-        #     # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
-        #     # これにより「特定のBinの中のどこか」に綺麗に分散させる
-        #     rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
-        #     self.goal_yaw[env_ids] = low_angles + rand_offset
+            # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
+            # これにより「特定のBinの中のどこか」に綺麗に分散させる
+            rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
+            self.goal_yaw[env_ids] = low_angles + rand_offset
             
-        # else:
-        #     # ファイルがない場合は従来通りの完全一様ランダム
-        #     self.goal_yaw[env_ids] = (
-        #         torch.rand(len(env_ids), device=self.device)
-        #         * 2.0 * torch.pi
-        #         - torch.pi
-        #     )
+        else:
+            # ファイルがない場合は従来通りの完全一様ランダム
+            self.goal_yaw[env_ids] = (
+                torch.rand(len(env_ids), device=self.device)
+                * 2.0 * torch.pi
+                - torch.pi
+            )
         # self.goal_yaw[env_ids] = (
         #     torch.rand(len(env_ids), device=self.device)
         #     * 2.0 * torch.pi
