@@ -91,8 +91,8 @@ agent:
   value_loss_scale: 2.5
   discriminator_loss_scale: 5.0
   amp_batch_size: 512
-  task_reward_scale: 1.0 #テスト
-  style_reward_scale: 0.5
+  task_reward_scale: 0.5 #テスト
+  style_reward_scale: 1.0
   # task_reward_scale: 0.2 # task_reward_weight → task_reward_scale
   # style_reward_scale: 1.0                   # style_reward_weight → style_reward_scale
   discriminator_batch_size: 4096

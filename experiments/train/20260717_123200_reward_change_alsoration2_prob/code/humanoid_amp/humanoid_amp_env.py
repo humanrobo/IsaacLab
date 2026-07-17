@@ -383,11 +383,11 @@ class HumanoidAmpEnv(DirectRLEnv):
         #         * 2.0 * torch.pi
         #         - torch.pi
         #     )
-        # self.goal_yaw[env_ids] = (
-        #     torch.rand(len(env_ids), device=self.device)
-        #     * 2.0 * torch.pi
-        #     - torch.pi
-        # )#世界座標基準（ワールド基準）の yaw
+        self.goal_yaw[env_ids] = (
+            torch.rand(len(env_ids), device=self.device)
+            * 2.0 * torch.pi
+            - torch.pi
+        )#世界座標基準（ワールド基準）の yaw
         #追加 初期の目標の向きをランダムにしている
         # self.goal_yaw[env_ids] = torch.pi*0.55
         # self.goal_yaw[env_ids] = torch.pi / 3

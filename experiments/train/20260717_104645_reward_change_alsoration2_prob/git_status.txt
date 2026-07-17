@@ -1,0 +1,8 @@
+ブランチ matsuno-work
+Your branch is up to date with 'origin/matsuno-work'.
+
+追跡されていないファイル:
+  (use "git add <file>..." to include in what will be committed)
+	experiments/train/20260717_104645_reward_change_alsoration2_prob/
+
+nothing added to commit but untracked files present (use "git add" to track)

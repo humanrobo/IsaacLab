@@ -91,6 +91,7 @@ for frame,t in enumerate(tqdm(times)):
         torch.zeros(num_envs,device=device),
         torch.ones(num_envs,device=device),
     )
+    #歩用評価
     motion_error = ((robot_now-motion_now)**2).mean(dim=1)
     # 正規化用に保存
     motion_errors_all = motion_error
@@ -132,6 +133,7 @@ for b in range(10):
     counts.append(count)
     if count == 0:
         errors.append(0.0)
+        #各目標方向ごとの平均誤差
         print(f"{angle_labels[b]} N={count} error=0")
     else:
         mean_error = best_error[idx].mean().item()
@@ -180,6 +182,7 @@ for a,b in pairs:
         value = torch.max(error_tensor[a], error_tensor[b])
     sym_error[a]=value
     sym_error[b]=value
+#
 print("Symmetric error:")
 print(sym_error.tolist())
 

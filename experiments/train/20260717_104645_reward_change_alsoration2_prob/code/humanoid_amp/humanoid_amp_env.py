@@ -362,27 +362,27 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-        # if self.use_biased_yaw:
-        #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
-        #     # replacement=True で重複を許して環境の数だけ引く
-        #     chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
+        if self.use_biased_yaw:
+            # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
+            # replacement=True で重複を許して環境の数だけ引く
+            chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
             
-        #     # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
-        #     bin_width = 2.0 * torch.pi / 10.0
-        #     low_angles = -torch.pi + chosen_bins.float() * bin_width
+            # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
+            bin_width = 2.0 * torch.pi / 10.0
+            low_angles = -torch.pi + chosen_bins.float() * bin_width
             
-        #     # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
-        #     # これにより「特定のBinの中のどこか」に綺麗に分散させる
-        #     rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
-        #     self.goal_yaw[env_ids] = low_angles + rand_offset
+            # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
+            # これにより「特定のBinの中のどこか」に綺麗に分散させる
+            rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
+            self.goal_yaw[env_ids] = low_angles + rand_offset
             
-        # else:
-        #     # ファイルがない場合は従来通りの完全一様ランダム
-        #     self.goal_yaw[env_ids] = (
-        #         torch.rand(len(env_ids), device=self.device)
-        #         * 2.0 * torch.pi
-        #         - torch.pi
-        #     )
+        else:
+            # ファイルがない場合は従来通りの完全一様ランダム
+            self.goal_yaw[env_ids] = (
+                torch.rand(len(env_ids), device=self.device)
+                * 2.0 * torch.pi
+                - torch.pi
+            )
         # self.goal_yaw[env_ids] = (
         #     torch.rand(len(env_ids), device=self.device)
         #     * 2.0 * torch.pi
