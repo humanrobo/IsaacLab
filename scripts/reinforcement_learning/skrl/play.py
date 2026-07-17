@@ -17,8 +17,6 @@ import sys
 
 from isaaclab.app import AppLauncher
 
-
-
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from skrl.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
@@ -114,6 +112,7 @@ from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_che
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
+
 #追加
 import omni
 from pxr import UsdGeom
@@ -125,6 +124,8 @@ import omni.appwindow
 import numpy as np
 import pygame
 import numpy as np
+from isaacsim.util.debug_draw import _debug_draw
+from isaaclab.utils.math import euler_xyz_from_quat
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
@@ -225,10 +226,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         model.eval()
 
     # reset environment
-    obs, _ = env.reset()
-    timestep = 0
+    # obs, _ = env.reset()
+    # timestep = 0
 
-    #追加
+    #追加------------------------------------------------------------------
+    #目標方向矢印
+    draw = _debug_draw.acquire_debug_draw_interface()
+    head_index = env.unwrapped.robot.find_bodies("head")[0][0]
     #手足先位置軌跡
     # reset environment
     pygame.init()
@@ -273,7 +277,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         on_keyboard_event,
     )
 
-    # simulate environment
+    #-------------------------------------------------------------------------
+    #  simulate environment
     while simulation_app.is_running():
         start_time = time.time()
 
@@ -331,6 +336,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 }, "scripts/my_evaluate_project/data/robot_state_latest.pt")
                 print("saved robot_state.pt")
             robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
+            #カメラ位置
             eye = [
                 float(robot_pos[0] + camera_offset[0]),
                 float(robot_pos[1] + camera_offset[1]),
@@ -346,6 +352,46 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 target=target,
                 camera_prim_path=camera_path,
             )
+        # ==========================================
+        # Goal方向の矢印を頭の上に描画
+        # ==========================================
+        draw.clear_lines()
+
+        head_pos = env.unwrapped.robot.data.body_pos_w[0, head_index]
+        goal_yaw = env.unwrapped.goal_yaw[0]
+        root_quat = env.unwrapped.robot.data.root_quat_w[0]
+        _, _, robot_yaw = euler_xyz_from_quat(root_quat.unsqueeze(0))
+        robot_yaw = robot_yaw[0]
+
+        start = (
+            head_pos[0].item(),
+            head_pos[1].item(),
+            head_pos[2].item() + 0.35,
+        )
+        length = 0.5
+        end = (
+            (head_pos[0] + length * torch.cos(goal_yaw)).item(),
+            (head_pos[1] + length * torch.sin(goal_yaw)).item(),
+            head_pos[2].item() + 0.35,
+        )
+        end_robot = (
+            float(head_pos[0] + length * torch.cos(robot_yaw)),
+            float(head_pos[1] + length * torch.sin(robot_yaw)),
+            float(head_pos[2] + 0.35),
+        )
+
+        draw.draw_lines(
+            [start],
+            [end],
+            [(0.0, 1.0, 0.0, 1.0)],
+            [4.0],
+        )
+        draw.draw_lines(
+            [start],
+            [end_robot],
+            [(0.0, 0.0, 1.0, 1.0)],   # 青
+            [4.0],
+        )
 
         timestep += 1
         # exit the play loop after recording one video
@@ -356,7 +402,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
-
+    #-------------------------------------------------------------------------
 
     print("saved trajectory:")
 
