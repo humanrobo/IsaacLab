@@ -229,11 +229,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # obs, _ = env.reset()
     # timestep = 0
 
-    #追加------------------------------------------------------------------
-    #目標方向矢印
+    #追加-----------------------------------------------------------------------------------------------------------
+    #目標方向矢印+++++++++++++++++++++++++++++++++++++++++++++++++++++
     draw = _debug_draw.acquire_debug_draw_interface()
     head_index = env.unwrapped.robot.find_bodies("head")[0][0]
-    #手足先位置軌跡
+    #手足先位置軌跡+++++++++++++++++++++++++++++++++++++++++++++++++++
     # reset environment
     pygame.init()
     screen = pygame.display.set_mode((200, 200))  # 重要
@@ -246,13 +246,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # 保存したいbody index
     left_foot_id = body_names.index("left_foot")
     right_foot_id = body_names.index("right_foot")
-    # 追従カメラ
+    # 追従カメラ+++++++++++++++++++++++++++++++++++++++++++++++++++++
     stage = omni.usd.get_context().get_stage()
     camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
     camera_prim = camera.GetPrim()
     camera_path = "/World/FollowCamera"
     camera_offset = [6.0, 30.0, 8.5]
     app_window = omni.appwindow.get_default_app_window()
+    #真上カメラ+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # camera_path = "/OmniverseKit_Persp"
+    # set_camera_view(
+    #     eye=[0.0, 0.0, 18.0],
+    #     target=[0.0, 0.0, 0.0],
+    #     camera_prim_path=camera_path,
+    # )
+    #キーボード操作+++++++++++++++++++++++++++++++++++++++++++++++++++
     keyboard = app_window.get_keyboard()
     input_iface = carb.input.acquire_input_interface()
     def on_keyboard_event(event, *args, **kwargs):
@@ -277,12 +285,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         on_keyboard_event,
     )
 
-    #-------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------------------
     #  simulate environment
     while simulation_app.is_running():
         start_time = time.time()
 
-        #追加キーボード
+        #追加キーボード+++++++++++++++++++++++++++++++++++++++++++++++++++++++
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 simulation_app.close()
@@ -305,7 +313,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 actions = outputs[-1].get("mean_actions", outputs[0])
             # env stepping
             obs, _, _, _, _ = env.step(actions)
-            #追加
+            #追加+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
             # body位置取得
             body_pos = robot.data.body_link_pos_w[0].cpu().numpy()
             trajectory.append(body_pos)
@@ -337,15 +345,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 print("saved robot_state.pt")
             robot_pos = env.unwrapped.robot.data.root_pos_w[0].cpu().numpy()
             #カメラ位置
+            root_quat = env.unwrapped.robot.data.root_quat_w[0]
+            _, _, robot_yaw = euler_xyz_from_quat(root_quat.unsqueeze(0))
+            robot_yaw = robot_yaw.item()
+            distance = 8.0
+            height = -1.0
+            # ロボットの左真横
             eye = [
-                float(robot_pos[0] + camera_offset[0]),
-                float(robot_pos[1] + camera_offset[1]),
-                float(robot_pos[2] + camera_offset[2]),
+                robot_pos[0] - distance * np.sin(robot_yaw),
+                robot_pos[1] + distance * np.cos(robot_yaw),
+                robot_pos[2] + height,
             ]
             target = [
-                float(robot_pos[0]),
-                float(robot_pos[1]),
-                float(robot_pos[2] + 1.0),
+                robot_pos[0],
+                robot_pos[1],
+                robot_pos[2] ,
             ]
             set_camera_view(
                 eye=eye,
@@ -357,27 +371,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         # ==========================================
         draw.clear_lines()
 
-        head_pos = env.unwrapped.robot.data.body_pos_w[0, head_index]
+        root_pos = env.unwrapped.robot.data.body_pos_w[0, head_index]
         goal_yaw = env.unwrapped.goal_yaw[0]
         root_quat = env.unwrapped.robot.data.root_quat_w[0]
         _, _, robot_yaw = euler_xyz_from_quat(root_quat.unsqueeze(0))
         robot_yaw = robot_yaw[0]
 
         start = (
-            head_pos[0].item(),
-            head_pos[1].item(),
-            head_pos[2].item() + 0.35,
+            root_pos[0].item(),
+            root_pos[1].item(),
+            root_pos[2].item() + 0.35,
         )
         length = 0.5
         end = (
-            (head_pos[0] + length * torch.cos(goal_yaw)).item(),
-            (head_pos[1] + length * torch.sin(goal_yaw)).item(),
-            head_pos[2].item() + 0.35,
+            (root_pos[0] + length * torch.cos(goal_yaw)).item(),
+            (root_pos[1] + length * torch.sin(goal_yaw)).item(),
+            root_pos[2].item() + 0.35,
         )
         end_robot = (
-            float(head_pos[0] + length * torch.cos(robot_yaw)),
-            float(head_pos[1] + length * torch.sin(robot_yaw)),
-            float(head_pos[2] + 0.35),
+            float(root_pos[0] + length * torch.cos(robot_yaw)),
+            float(root_pos[1] + length * torch.sin(robot_yaw)),
+            float(root_pos[2] + 0.35),
         )
 
         draw.draw_lines(
@@ -402,7 +416,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
-    #-------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------------------
 
     print("saved trajectory:")
 
