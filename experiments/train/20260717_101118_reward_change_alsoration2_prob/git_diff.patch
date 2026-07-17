@@ -1,0 +1,70 @@
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 23a7a5f9d..b37026a2c 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:f0073ae9c19ff048ace8b7a3e08edef7d9dc8f869064d463dae91ced5f642182
+-size 335264
++oid sha256:9e78c27be167ef02384568bf089a229000509bc66f5600d124ef243b3fffcc48
++size 6624
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 69213ce45..cb4c9585d 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -362,32 +362,32 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
+         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+-        # if self.use_biased_yaw:
+-        #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
+-        #     # replacement=True で重複を許して環境の数だけ引く
+-        #     chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
++        if self.use_biased_yaw:
++            # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
++            # replacement=True で重複を許して環境の数だけ引く
++            chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
+             
+-        #     # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
+-        #     bin_width = 2.0 * torch.pi / 10.0
+-        #     low_angles = -torch.pi + chosen_bins.float() * bin_width
++            # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
++            bin_width = 2.0 * torch.pi / 10.0
++            low_angles = -torch.pi + chosen_bins.float() * bin_width
+             
+-        #     # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
+-        #     # これにより「特定のBinの中のどこか」に綺麗に分散させる
+-        #     rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
+-        #     self.goal_yaw[env_ids] = low_angles + rand_offset
++            # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
++            # これにより「特定のBinの中のどこか」に綺麗に分散させる
++            rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
++            self.goal_yaw[env_ids] = low_angles + rand_offset
+             
+-        # else:
+-        #     # ファイルがない場合は従来通りの完全一様ランダム
+-        #     self.goal_yaw[env_ids] = (
+-        #         torch.rand(len(env_ids), device=self.device)
+-        #         * 2.0 * torch.pi
+-        #         - torch.pi
+-        #     )
+-        self.goal_yaw[env_ids] = (
+-            torch.rand(len(env_ids), device=self.device)
+-            * 2.0 * torch.pi
+-            - torch.pi
+-        )#世界座標基準（ワールド基準）の yaw
++        else:
++            # ファイルがない場合は従来通りの完全一様ランダム
++            self.goal_yaw[env_ids] = (
++                torch.rand(len(env_ids), device=self.device)
++                * 2.0 * torch.pi
++                - torch.pi
++            )
++        # self.goal_yaw[env_ids] = (
++        #     torch.rand(len(env_ids), device=self.device)
++        #     * 2.0 * torch.pi
++        #     - torch.pi
++        # )#世界座標基準（ワールド基準）の yaw
+         #追加 初期の目標の向きをランダムにしている
+         # self.goal_yaw[env_ids] = torch.pi*0.55
+         # self.goal_yaw[env_ids] = torch.pi / 3

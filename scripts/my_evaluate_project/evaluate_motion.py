@@ -173,22 +173,25 @@ for a,b in pairs:
 print("Symmetric error:")
 print(sym_error.tolist())
 
-threshold=0.3
 
-difficulty=torch.zeros_like(sym_error)
+# =====================================
+# 難しい方向ほど確率を上げる
+# =====================================
 
-difficulty[sym_error<threshold]=sym_error[sym_error<threshold]
+# 0除算防止 + 未評価方向にも少し確率を残す
+epsilon = 1.0
 
-temperature=1.5
+difficulty = sym_error + epsilon
 
-difficulty=difficulty**temperature
+# 難しい方向を強調
+temperature = 1.5
 
-if difficulty.sum()==0:
-    yaw_probabilities=torch.ones_like(difficulty)
-else:
-    yaw_probabilities=difficulty
+difficulty = difficulty ** temperature
 
-yaw_probabilities/=yaw_probabilities.sum()
+
+# 確率化
+yaw_probabilities = difficulty / difficulty.sum()
+
 
 print("\nFinal probabilities:")
 
@@ -208,6 +211,5 @@ torch.save(
 )
 
 print(f"Saved: {distribution_file}")
-
 simulation_app.close()
 os.kill(os.getpid(),signal.SIGKILL)
