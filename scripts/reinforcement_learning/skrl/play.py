@@ -243,12 +243,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     obs, _ = env.reset()
     timestep = 0
     trajectory = []
+    foot_trajectory = []
+    hand_trajectory = []
     robot = env.unwrapped.robot
     body_names = robot.data.body_names
     print(body_names)
     # 保存したいbody index
     left_foot_id = body_names.index("left_foot")
     right_foot_id = body_names.index("right_foot")
+    left_hand_id = body_names.index("left_hand")
+    right_hand_id = body_names.index("right_hand")
     # カメラウィンドウ初期化+++++++++++++++++++++++++++++++++++++++++++++++++++++
     create_viewport_window("Follow")
     follow_view = get_viewport_from_window_name("Follow")
@@ -264,8 +268,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # 録画設定+++++++++++++++++++++++++++++++++++++++++++++++++++++
     frame_id = 0
     yaw_index = 0
-    yaw_list = np.deg2rad(np.arange(0,360,18))
-    recording = True
+    yaw_list = torch.deg2rad(
+        torch.arange(
+            0,
+            360,
+            18,
+            device=env.device
+        )
+    )
+    env.unwrapped.goal_yaw[:] = yaw_list
+    recording = False
     # 追従カメラ+++++++++++++++++++++++++++++++++++++++++++++++++++++
     stage = omni.usd.get_context().get_stage()
     camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
@@ -318,18 +330,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         start_time = time.time()
 
         #追加+++++++++++++++++++++++++++++++++++++++++++++++++++++++
-        # 20秒ごとに目標方向変更
-        if timestep > 0 and timestep % episode_steps == 0:
-            yaw_index += 1
-            if yaw_index >= len(yaw_list):
-                print("all directions finished")
-                simulation_app.close()
-            else:
-                obs, _ = env.reset()
-                env.unwrapped.goal_yaw[:] = yaw_list[yaw_index]
-                print(
-                    f"goal yaw changed: {np.rad2deg(yaw_list[yaw_index])} deg"
-                )
         #追加キーボード+++++++++++++++++++++++++++++++++++++++++++++++++++++++
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -355,16 +355,35 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             obs, _, _, _, _ = env.step(actions)
             #追加+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
             # body位置取得
-            body_pos = robot.data.body_link_pos_w[0].cpu().numpy()
-            trajectory.append(body_pos)
+            # root XY位置取得（20環境分）
+            root_xy = (
+                robot.data.root_pos_w[:, :2]
+                .cpu()
+                .numpy()
+            )
+            trajectory.append(root_xy)
+            foot_pos = (robot.data.body_link_pos_w[:,[left_foot_id,right_foot_id]].cpu().numpy())
+            foot_trajectory.append(foot_pos)
+            hand_pos = (robot.data.body_link_pos_w[:,[left_hand_id,right_hand_id]].cpu().numpy())
+            hand_trajectory.append(hand_pos)
             #最新のロボット状態データ保存
-            if timestep == 5000:
+            if timestep == episode_steps - 1:
                 #追加
                 trajectory_array = np.array(trajectory)
-                print(len(trajectory))
+                foot_array = np.array(foot_trajectory)
+                print("trajectory shape:", trajectory_array.shape)
+                print("foot shape:", foot_array.shape)
                 np.save(
-                    "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/h1_body_trajectory.npy",
+                    "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/root_xy_trajectory.npy",
                     trajectory_array
+                )
+                np.save(
+                    "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/foot_trajectory.npy",
+                    foot_array
+                )
+                np.save(
+                    "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/hand_trajectory.npy",
+                    np.array(hand_trajectory)
                 )
                 print(hasattr(env.unwrapped.robot.data, "body_pos_w"))
                 torch.save({
