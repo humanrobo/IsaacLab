@@ -126,6 +126,9 @@ import pygame
 import numpy as np
 from isaacsim.util.debug_draw import _debug_draw
 from isaaclab.utils.math import euler_xyz_from_quat
+from omni.kit.viewport.utility import create_viewport_window
+from omni.kit.viewport.utility import get_viewport_from_window_name
+from omni.kit.viewport.utility import capture_viewport_to_file
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
@@ -246,20 +249,44 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # 保存したいbody index
     left_foot_id = body_names.index("left_foot")
     right_foot_id = body_names.index("right_foot")
+    # カメラウィンドウ初期化+++++++++++++++++++++++++++++++++++++++++++++++++++++
+    create_viewport_window("Follow")
+    follow_view = get_viewport_from_window_name("Follow")
+    follow_view.set_active_camera("/World/FollowCamera")
+    #目標方向更新++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    episode_length_s = 20.0
+    sim_dt = env.unwrapped.sim.get_physics_dt()
+    episode_steps = int(episode_length_s / sim_dt)
+    # Top Camera View
+    # create_viewport_window("Top")
+    # top_view = get_viewport_from_window_name("Top")
+    # top_view.set_active_camera("/World/TopCamera")
+    # 録画設定+++++++++++++++++++++++++++++++++++++++++++++++++++++
+    frame_id = 0
+    yaw_index = 0
+    yaw_list = np.deg2rad(np.arange(0,360,18))
+    recording = True
     # 追従カメラ+++++++++++++++++++++++++++++++++++++++++++++++++++++
     stage = omni.usd.get_context().get_stage()
     camera = UsdGeom.Camera.Define(stage, "/World/FollowCamera")
-    camera_prim = camera.GetPrim()
     camera_path = "/World/FollowCamera"
     camera_offset = [6.0, 30.0, 8.5]
     app_window = omni.appwindow.get_default_app_window()
+    follow_view.set_active_camera("/World/FollowCamera")
     #真上カメラ+++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # camera_path = "/OmniverseKit_Persp"
-    # set_camera_view(
-    #     eye=[0.0, 0.0, 18.0],
-    #     target=[0.0, 0.0, 0.0],
-    #     camera_prim_path=camera_path,
-    # )
+    top_camera = UsdGeom.Camera.Define(stage, "/World/TopCamera")
+    top_camera_path = "/World/TopCamera"
+    set_camera_view(
+        eye=[0.0, 0.0, 80.0],      # 真上20m
+        target=[0.0, 0.0, 0.0],    # Ground中心
+        camera_prim_path=top_camera_path,
+    )
+    # viewport作成
+    create_viewport_window("Top")
+    top_view = get_viewport_from_window_name("Top")
+    top_view.set_active_camera(
+        top_camera_path
+    )
     #キーボード操作+++++++++++++++++++++++++++++++++++++++++++++++++++
     keyboard = app_window.get_keyboard()
     input_iface = carb.input.acquire_input_interface()
@@ -290,6 +317,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     while simulation_app.is_running():
         start_time = time.time()
 
+        #追加+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        # 20秒ごとに目標方向変更
+        if timestep > 0 and timestep % episode_steps == 0:
+            yaw_index += 1
+            if yaw_index >= len(yaw_list):
+                print("all directions finished")
+                simulation_app.close()
+            else:
+                obs, _ = env.reset()
+                env.unwrapped.goal_yaw[:] = yaw_list[yaw_index]
+                print(
+                    f"goal yaw changed: {np.rad2deg(yaw_list[yaw_index])} deg"
+                )
         #追加キーボード+++++++++++++++++++++++++++++++++++++++++++++++++++++++
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -376,7 +416,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         root_quat = env.unwrapped.robot.data.root_quat_w[0]
         _, _, robot_yaw = euler_xyz_from_quat(root_quat.unsqueeze(0))
         robot_yaw = robot_yaw[0]
-
         start = (
             root_pos[0].item(),
             root_pos[1].item(),
@@ -393,7 +432,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             float(root_pos[1] + length * torch.sin(robot_yaw)),
             float(root_pos[2] + 0.35),
         )
-
         draw.draw_lines(
             [start],
             [end],
@@ -407,7 +445,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             [4.0],
         )
 
+        if recording:
+            capture_viewport_to_file(
+                follow_view,
+                f"./videos/yaw_{yaw_index}/side/{frame_id:06d}.png"
+            )
+            capture_viewport_to_file(
+                top_view,
+                f"./videos/yaw_{yaw_index}/top/{frame_id:06d}.png"
+            )
+
         timestep += 1
+        frame_id += 1
         # exit the play loop after recording one video
         # if timestep == args_cli.video_length:
         #     break
