@@ -111,7 +111,10 @@ def define_sensor() -> Camera:
         colorize_instance_id_segmentation=True,
         colorize_instance_segmentation=True,
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=8.0, focus_distance=400.0, horizontal_aperture=30, clipping_range=(0.1, 1.0e5)
+            focal_length=8.0, 
+            focus_distance=400.0, 
+            horizontal_aperture=30, 
+            clipping_range=(0.1, 1.0e5)
         ),
     )
     # Create camera
@@ -175,9 +178,9 @@ def design_scene() -> dict:
     scene_entities["camera"] = camera
     return scene_entities
 
-resolution = 0.05
-xmin, xmax = -10.0, 10.0
-ymin, ymax = -10.0, 10.0
+resolution = 0.03
+xmin, xmax = -5.0, 5.0
+ymin, ymax = -5.0, 5.0
 
 W = int((xmax-xmin)/resolution)
 H = int((ymax-ymin)/resolution)
