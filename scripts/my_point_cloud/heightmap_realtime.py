@@ -171,16 +171,35 @@ def design_scene() -> dict:
         )
         scene_entities[f"rigid_object{i}"] = RigidObject(cfg=obj_cfg)
 
+# --- 【修正】単なるXformではなく、物理オブジェクト（RigidObject）として親を作る ---
+    cam_init_pos = [2.5, 2.5, 2.5]
+    cam_init_quat = [-0.1759, 0.3399, 0.8205, -0.4247] # (x, y, z, w)
+
+    tracker_obj_cfg = RigidObjectCfg(
+        prim_path="/World/Objects/CameraTracker", # ここを親のパスにする
+        spawn=sim_utils.SphereCfg(
+            radius=0.01, # 小さな球体（視覚的に邪魔なら見えないようにすることも可能）
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=cam_init_pos,
+            rot=cam_init_quat,
+        ),
+    )
+    # Python側の辞書に登録するのでKeyErrorが起きなくなる
+    scene_entities["camera_tracker"] = RigidObject(cfg=tracker_obj_cfg)
     # Sensors
     camera = define_sensor()
-
     # return the scene information
     scene_entities["camera"] = camera
     return scene_entities
 
 resolution = 0.03
-xmin, xmax = -5.0, 5.0
-ymin, ymax = -5.0, 5.0
+xmin, xmax = -4.0, 4.0
+ymin, ymax = -4.0, 4.0
 
 W = int((xmax-xmin)/resolution)
 H = int((ymax-ymin)/resolution)
@@ -356,21 +375,28 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             continue
 
         # 1. 深度から点群への変換・フィルタリング
+                # 3. 9個目のオブジェクトの正確な位置・姿勢を点群生成に利用
+        # 物理エンジンが管理する確実なオブジェクトから座標と姿勢を取得
+        tracker_obj = scene_entities["camera_tracker"]
+        obj_pos = tracker_obj.data.root_pos_w[0]
+        obj_quat = tracker_obj.data.root_quat_w[0]
         depth = camera.data.output["distance_to_camera"][camera_index]
         depth = depth.squeeze(-1)
         
-        points_cam = create_pointcloud_from_depth(
+        points_world = create_pointcloud_from_depth(
             intrinsic_matrix=camera.data.intrinsic_matrices[0],
             depth=depth,
+            position=obj_pos,     # 9個目のトラッカーオブジェクトの位置
+            orientation=obj_quat, 
             keep_invalid=False,
             device=sim.device
         )
-        mask = torch.isfinite(points_cam).all(dim=1)
-        points_cam_isaac = points_cam.clone()
+        # mask = torch.isfinite(points_cam).all(dim=1)
+        # points_cam_isaac = points_cam.clone()
         
-        points_world = (
-            R @ points_cam_isaac.T
-        ).T + camera_pos
+        # points_world = (
+        #     R @ points_cam_isaac.T
+        # ).T + camera_pos
         
         mask = torch.isfinite(points_world).all(dim=1)
         points_world = points_world[mask]

@@ -228,11 +228,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         root_state[0, 0] = initial_x + 0.5 * np.sin(frame_count * 0.05)
         obj.write_root_state_to_sim(root_state)
 
-        # 2. 9個目のトラッカーオブジェクトから正確な位置と姿勢を取得
-        tracker_obj = scene_entities["camera_tracker"]
-        obj_pos = tracker_obj.data.root_pos_w[0]
-        obj_quat = tracker_obj.data.root_quat_w[0] # ROS規約のクォータニオン
-
         print(f"Frame {frame_count} - Tracker Object Position:", obj_pos)
         frame_count += 1
 
