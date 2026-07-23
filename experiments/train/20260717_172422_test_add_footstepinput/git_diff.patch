@@ -1,0 +1,109 @@
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 45f819fa4..5e0619329 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -75,6 +75,15 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.left_shin_idx = self.robot.body_names.index("left_shin")
+         self.right_shin_idx = self.robot.body_names.index("right_shin")
+ 
++        self.footstep_targets = torch.zeros(
++            self.num_envs, 4,
++            device=self.device
++        )
++        self.footstep_targets[:,0] = 0.35   # left_x
++        self.footstep_targets[:,1] = 0.15   # left_y
++        self.footstep_targets[:,2] = 0.35   # right_x
++        self.footstep_targets[:,3] = -0.15  # right_y
++
+         self.knee_down_count = torch.zeros(
+             self.num_envs,
+             dtype=torch.int32,
+@@ -180,7 +189,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             key_pos_w,
+         )
+ 
+-        policy_obs = compute_obs(
++        policy_obs = compute_policy_obs(
+             self.robot.data.joint_pos,
+             self.robot.data.joint_vel,
+             local_root_pos,
+@@ -190,6 +199,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             local_key_pos,
+             heading_sin,
+             heading_cos,
++            self.footstep_targets,
+         )
+ 
+         # -----------------------------------------------------------
+@@ -209,7 +219,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # )
+ 
+         # 【修正】AMP Obs を完全にローカル化
+-        amp_obs = compute_obs(
++        amp_obs = compute_amp_obs(
+             self.robot.data.joint_pos,
+             self.robot.data.joint_vel,
+             local_root_pos,
+@@ -475,7 +485,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             body_positions[:, self.motion_key_body_indexes],
+         )
+ 
+-        amp_observation = compute_obs(
++        amp_observation = compute_amp_obs(
+             dof_positions[:, self.motion_dof_indexes],
+             dof_velocities[:, self.motion_dof_indexes],
+             local_root_pos,
+@@ -550,7 +560,39 @@ def localize_observation(
+     )
+ 
+ @torch.jit.script
+-def compute_obs(
++def compute_policy_obs(
++    dof_positions: torch.Tensor,
++    dof_velocities: torch.Tensor,
++    root_positions: torch.Tensor,
++    root_rotations: torch.Tensor,
++    root_linear_velocities: torch.Tensor,
++    root_angular_velocities: torch.Tensor,
++    key_body_positions: torch.Tensor,
++    #追加
++    heading_sin: torch.Tensor,
++    heading_cos: torch.Tensor,
++    footstep_targets: torch.Tensor,
++) -> torch.Tensor:
++    obs = torch.cat(
++        (
++            dof_positions,
++            dof_velocities,
++            root_positions[:, 2:3],  # root body height
++            quaternion_to_tangent_and_normal(root_rotations),
++            root_linear_velocities,
++            root_angular_velocities,
++            key_body_positions.view(key_body_positions.shape[0], -1),
++            #追加
++            heading_sin.unsqueeze(-1),
++            heading_cos.unsqueeze(-1),
++            footstep_targets,
++        ),
++        dim=-1,
++    )
++    return obs
++
++@torch.jit.script
++def compute_amp_obs(
+     dof_positions: torch.Tensor,
+     dof_velocities: torch.Tensor,
+     root_positions: torch.Tensor,
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+index 1c3019100..80fdb7c11 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+@@ -33,7 +33,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
+     action_space = 28
+     state_space = 0
+     num_amp_observations = 2
+-    amp_observation_space = 83#次元を2つ追加
++    amp_observation_space = 87#次元を2+4つ追加
+ 
+     early_termination = True
+     termination_height = 0.5

@@ -72,19 +72,20 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObject, RigidObjectCfg
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.markers.config import RAY_CASTER_MARKER_CFG
-from isaaclab.sensors.camera import Camera, CameraCfg
+from isaaclab.sensors.camera import Camera, CameraCfg, camera
 from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 from isaaclab.utils import convert_dict_to_backend
 
 
 def define_sensor() -> Camera:
-    """Defines the camera sensor to add to the scene as a child of CameraTracker."""
-    # カメラが [0,0,0] を向くためのROSクォータニオン
-    init_quat = [-0.1759, 0.3399, 0.8205, -0.4247]  # (x, y, z, w)
-
+    """Defines the camera sensor to add to the scene."""
+    # Setup camera sensor
+    # In contrast to the ray-cast camera, we spawn the prim at these locations.
+    # This means the camera sensor will be attached to these prims.
+    sim_utils.create_prim("/World/Origin_00", "Xform")
+    sim_utils.create_prim("/World/Origin_01", "Xform")
     camera_cfg = CameraCfg(
-        # 親プライムである CameraTracker の子階層として指定
-        prim_path="/World/Objects/CameraTracker/CameraSensor",
+        prim_path="/World/Origin_.*/CameraSensor",
         update_period=0,
         height=480,
         width=640,
@@ -102,24 +103,24 @@ def define_sensor() -> Camera:
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
         ),
-        # カメラ自身のローカルな向き（姿勢）をここで設定
-        offset=CameraCfg.OffsetCfg(
-            rot=init_quat,
-            convention="ros",
-        ),
     )
+    # Create camera
     camera = Camera(cfg=camera_cfg)
+
     return camera
 
 
 def design_scene() -> dict:
     """Design the scene."""
+    # Populate scene
+    # -- Ground-plane
     cfg = sim_utils.GroundPlaneCfg()
     cfg.func("/World/defaultGroundPlane", cfg)
-    
+    # -- Lights
     cfg = sim_utils.DistantLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
     cfg.func("/World/Light", cfg)
 
+    # Create a dictionary for the scene entities
     scene_entities = {}
 
     # Xform to hold objects
@@ -154,36 +155,17 @@ def design_scene() -> dict:
         )
         scene_entities[f"rigid_object{i}"] = RigidObject(cfg=obj_cfg)
 
-    # --- 【修正】単なるXformではなく、物理オブジェクト（RigidObject）として親を作る ---
-    cam_init_pos = [2.5, 2.5, 2.5]
-    cam_init_quat = [-0.1759, 0.3399, 0.8205, -0.4247] # (x, y, z, w)
-
-    tracker_obj_cfg = RigidObjectCfg(
-        prim_path="/World/Objects/CameraTracker", # ここを親のパスにする
-        spawn=sim_utils.SphereCfg(
-            radius=0.01, # 小さな球体（視覚的に邪魔なら見えないようにすることも可能）
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=cam_init_pos,
-            rot=cam_init_quat,
-        ),
-    )
-    # Python側の辞書に登録するのでKeyErrorが起きなくなる
-    scene_entities["camera_tracker"] = RigidObject(cfg=tracker_obj_cfg)
-
-    # カメラセンサーを定義（親である CameraTracker の子階層にする）
+    # Sensors
     camera = define_sensor()
+
+    # return the scene information
     scene_entities["camera"] = camera
-    
     return scene_entities
 
 
 def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
     """Run the simulator."""
+    # extract entities for simplified notation
     camera: Camera = scene_entities["camera"]
 
     # Create replicator writer
@@ -197,44 +179,36 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
     )
 
     # Camera positions, targets, orientations
-# 修正後（1台分のみにする）
-    camera_positions = torch.tensor([[2.5, 2.5, 2.5]], device=sim.device)
-    camera_targets = torch.tensor([[0.0, 0.0, 0.0]], device=sim.device)
-    
+    camera_positions = torch.tensor([[2.5, 2.5, 2.5], [-2.5, -2.5, 2.5]], device=sim.device)
+    camera_targets = torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], device=sim.device)
+    # These orientations are in ROS-convention, and will position the cameras to view the origin
+    camera_orientations = torch.tensor(  # noqa: F841
+        [[-0.1759, 0.3399, 0.8205, -0.4247], [-0.4247, 0.8205, -0.3399, 0.1759]], device=sim.device
+    )
+
+    # Set pose: There are two ways to set the pose of the camera.
+    # -- Option-1: Set pose using view
     camera.set_world_poses_from_view(camera_positions, camera_targets)
+    # -- Option-2: Set pose using ROS
+    # camera.set_world_poses(camera_positions, camera_orientations, convention="ros")
 
-    camera_index = args_cli.camera_id
+    # Index of the camera to use for visualization and saving
+    # camera_index = args_cli.camera_id
+    camera_index = 0
 
-    # Create the markers for the --draw option
+    # Create the markers for the --draw option outside of is_running() loop
     if sim.has_gui() and args_cli.draw:
         cfg = RAY_CASTER_MARKER_CFG.replace(prim_path="/Visuals/CameraPointCloud")
-        cfg.markers["hit"].radius = 0.01
+        cfg.markers["hit"].radius = 0.002
         pc_markers = VisualizationMarkers(cfg)
-
-    frame_count = 0
 
     # Simulate physics
     while simulation_app.is_running():
         # Step simulation
         sim.step()
-        
-        # センサーの更新
+        # Update camera data
         camera.update(dt=sim.get_physics_dt())
-
-        # 1. 8個目のオブジェクト（例: rigid_object1）を動かすテスト処理
-        obj = scene_entities["rigid_object1"]
-        root_state = obj.data.default_root_state.clone()
-        initial_x = root_state[0, 0].item()
-        root_state[0, 0] = initial_x + 0.5 * np.sin(frame_count * 0.05)
-        obj.write_root_state_to_sim(root_state)
-
-        # 2. 9個目のトラッカーオブジェクトから正確な位置と姿勢を取得
-        tracker_obj = scene_entities["camera_tracker"]
-        obj_pos = tracker_obj.data.root_pos_w[0]
-        obj_quat = tracker_obj.data.root_quat_w[0] # ROS規約のクォータニオン
-
-        print(f"Frame {frame_count} - Tracker Object Position:", obj_pos)
-        frame_count += 1
+        print(camera.is_initialized)
 
         # Print camera info
         print(camera)
@@ -242,68 +216,102 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             print("Received shape of rgb image        : ", camera.data.output["rgb"].shape)
         if "distance_to_image_plane" in camera.data.output.keys():
             print("Received shape of depth image      : ", camera.data.output["distance_to_image_plane"].shape)
+        if "normals" in camera.data.output.keys():
+            print("Received shape of normals          : ", camera.data.output["normals"].shape)
+        if "semantic_segmentation" in camera.data.output.keys():
+            print("Received shape of semantic segm.   : ", camera.data.output["semantic_segmentation"].shape)
+        if "instance_segmentation_fast" in camera.data.output.keys():
+            print("Received shape of instance segm.   : ", camera.data.output["instance_segmentation_fast"].shape)
+        if "instance_id_segmentation_fast" in camera.data.output.keys():
+            print("Received shape of instance id segm.: ", camera.data.output["instance_id_segmentation_fast"].shape)
         print("-------------------------------")
 
         # Extract camera data
         if args_cli.save:
+            # Save images from camera at camera_index
+            # note: BasicWriter only supports saving data in numpy format, so we need to convert the data to numpy.
             single_cam_data = convert_dict_to_backend(
                 {k: v[camera_index] for k, v in camera.data.output.items()}, backend="numpy"
             )
+
+            # Extract the other information
             single_cam_info = camera.data.info[camera_index]
 
+            # Pack data back into replicator format to save them using its writer
             rep_output = {"annotators": {}}
             for key, data, info in zip(single_cam_data.keys(), single_cam_data.values(), single_cam_info.values()):
                 if info is not None:
                     rep_output["annotators"][key] = {"render_product": {"data": data, **info}}
                 else:
                     rep_output["annotators"][key] = {"render_product": {"data": data}}
+            # Save images
+            # Note: We need to provide On-time data for Replicator to save the images.
             rep_output["trigger_outputs"] = {"on_time": camera.frame[camera_index]}
             rep_writer.write(rep_output)
 
-        # 3. 9個目のオブジェクトの正確な位置・姿勢を点群生成に利用
-        # 物理エンジンが管理する確実なオブジェクトから座標と姿勢を取得
-        tracker_obj = scene_entities["camera_tracker"]
-        obj_pos = tracker_obj.data.root_pos_w[0]
-        obj_quat = tracker_obj.data.root_quat_w[0]
+        print("has_gui =", sim.has_gui())
+        print("draw =", args_cli.draw)
+        print("has depth =", "distance_to_image_plane" in camera.data.output.keys())
+        # Draw pointcloud if there is a GUI and --draw has been passed
         if sim.has_gui() and args_cli.draw and "distance_to_image_plane" in camera.data.output.keys():
+            # depth = camera.data.output["distance_to_image_plane"][camera_index]
+            # depth = depth.squeeze(-1)
+            # print(depth.shape)
+            # Derive pointcloud from camera at camera_index
+            print("A")
             depth = camera.data.output["distance_to_image_plane"][camera_index]
             depth = depth.squeeze(-1)
-
+            print(depth.shape)
+            print(camera.data.intrinsic_matrices[camera_index])
+            print(camera.data.pos_w)
+            print(camera.data.quat_w_ros)
             pointcloud = create_pointcloud_from_depth(
                 intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],
                 depth=depth,
-                position=obj_pos,     # 9個目のトラッカーオブジェクトの位置
-                orientation=obj_quat, # 9個目のトラッカーオブジェクトの姿勢
                 device=sim.device,
             )
+            print(pointcloud.shape)
+            print(torch.isfinite(pointcloud).all())
+            print("B")
+            print(pointcloud.shape)
 
+            # In the first few steps, things are still being instanced and Camera.data
+            # can be empty. If we attempt to visualize an empty pointcloud it will crash
+            # the sim, so we check that the pointcloud is not empty.
+            torch.save(pointcloud.cpu(), "scripts/my_point_cloud/pointcloud_cam0.pt")
             if pointcloud.size()[0] > 0:
-                valid_mask = torch.isfinite(pointcloud).all(dim=-1)
-                pointcloud = pointcloud[valid_mask]
-
-                if pointcloud.shape[0] > 0:
-                    pointcloud_draw = pointcloud[::100] 
-                    import omni.usd
-                    stage = omni.usd.get_context().get_stage()
-                    if stage.GetPrimAtPath("/Visuals/CameraPointCloud"):
-                        stage.RemovePrim("/Visuals/CameraPointCloud")
-                    pc_markers = VisualizationMarkers(cfg)
-                    pc_markers.visualize(translations=pointcloud_draw)
+                print("PointCloud:", pointcloud.shape)  # --- IGNORE ---
+                # pc_markers.visualize(translations=pointcloud)
+                pointcloud_draw = pointcloud[::500]
+                print(pointcloud_draw.shape)
+                print(pointcloud_draw.min(dim=0).values)
+                print(pointcloud_draw.max(dim=0).values)
+                pc_markers.visualize(
+                    translations=pointcloud_draw
+                )
 
 
 def main():
     """Main function."""
+    # Load simulation context
     sim_cfg = sim_utils.SimulationCfg(device=args_cli.device)
     sim = sim_utils.SimulationContext(sim_cfg)
+    # Set main camera
     sim.set_camera_view([2.5, 2.5, 2.5], [0.0, 0.0, 0.0])
+    # Design scene
     scene_entities = design_scene()
+    # Play simulator
     sim.reset()
+    # Now we are ready!
     print("[INFO]: Setup complete...")
     print("sim.has_gui() =", sim.has_gui())
     print("args_cli.draw =", args_cli.draw)
+    # Run simulator
     run_simulator(sim, scene_entities)
 
 
 if __name__ == "__main__":
+    # run the main function
     main()
+    # close sim app
     simulation_app.close()

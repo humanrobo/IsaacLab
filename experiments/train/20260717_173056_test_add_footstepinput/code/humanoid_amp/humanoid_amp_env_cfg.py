@@ -33,7 +33,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
     action_space = 28
     state_space = 0
     num_amp_observations = 2
-    amp_observation_space = 83#次元を2+4つ追加
+    amp_observation_space = 8#次元を2+4つ追加
 
     early_termination = True
     termination_height = 0.5

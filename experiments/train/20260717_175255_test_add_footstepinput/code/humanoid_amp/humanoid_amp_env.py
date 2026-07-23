@@ -75,7 +75,6 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.left_shin_idx = self.robot.body_names.index("left_shin")
         self.right_shin_idx = self.robot.body_names.index("right_shin")
 
-        #footstep_targetsの初期化
         self.footstep_targets = torch.zeros(
             self.num_envs, 4,
             device=self.device
@@ -84,30 +83,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.footstep_targets[:,1] = 0.15   # left_y
         self.footstep_targets[:,2] = 0.35   # right_x
         self.footstep_targets[:,3] = -0.15  # right_y
-        self.left_foot_idx = self.robot.body_names.index("left_foot")
-        self.right_foot_idx = self.robot.body_names.index("right_foot")
-        self.prev_left_contact = torch.zeros(
-            self.num_envs,
-            dtype=torch.bool,
-            device=self.device
-        )
-        self.prev_right_contact = torch.zeros(
-            self.num_envs,
-            dtype=torch.bool,
-            device=self.device
-        )
-        # 着地点保存
-        self.left_landing_pos = torch.zeros(
-            self.num_envs, 2,
-            device=self.device,
-        )
 
-        self.right_landing_pos = torch.zeros(
-            self.num_envs, 2,
-            device=self.device,
-        )
-
-        # 膝立ち判定用のカウンタ
         self.knee_down_count = torch.zeros(
             self.num_envs,
             dtype=torch.int32,
@@ -349,33 +325,18 @@ class HumanoidAmpEnv(DirectRLEnv):
         root_rot_w = self.robot.data.body_quat_w[:, self.ref_body_index]
         left_foot_local = localize_footstep(left_foot_pos_w, root_pos_w,root_rot_w,)
         right_foot_local = localize_footstep(right_foot_pos_w,root_pos_w,root_rot_w,)
-        left_contact = left_foot_pos_w[:,2] < 0.05
-        right_contact = right_foot_pos_w[:,2] < 0.05
-        left_landing = left_contact & (~self.prev_left_contact)
-        right_landing = right_contact & (~self.prev_right_contact)
-        self.left_landing_pos[left_landing] = left_foot_local[left_landing,:2]
-        self.right_landing_pos[right_landing] = right_foot_local[right_landing,:2]
-
         left_error = torch.norm(
-            self.left_landing_pos
-            - self.footstep_targets[:,0:2],
+            left_foot_local[:, :2]
+            - self.footstep_targets[:, 0:2],
             dim=-1,
         )
         right_error = torch.norm(
-            self.right_landing_pos
-            - self.footstep_targets[:,2:4],
+            right_foot_local[:, :2]
+            - self.footstep_targets[:, 2:4],
             dim=-1,
         )
-        landed = left_landing | right_landing
-        footstep_reward = torch.zeros(
-            self.num_envs,
-            device=self.device
-        )
-        footstep_reward[left_landing] += torch.exp(
-            -10.0 * left_error[left_landing]
-        )
-        footstep_reward[right_landing] += torch.exp(
-            -10.0 * right_error[right_landing]
+        footstep_reward = torch.exp(
+            -10.0 * (left_error + right_error)
         )
 
         # 報酬の合成---------------------------------------------------------------------------
@@ -385,9 +346,6 @@ class HumanoidAmpEnv(DirectRLEnv):
             + 0.5 * footstep_reward
             # + 0.5 * heading_reward
         )
-
-        self.prev_left_contact = left_contact
-        self.prev_right_contact = right_contact
 
         # 1000ステップごとにログを出力
         if self.common_step_counter % 1000 == 0:
@@ -439,11 +397,6 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-
-        self.prev_left_contact[env_ids] = False
-        self.prev_right_contact[env_ids] = False
-        self.left_landing_pos[env_ids] = 0.0
-        self.right_landing_pos[env_ids] = 0.0
         # if self.use_biased_yaw:
         #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
         #     # replacement=True で重複を許して環境の数だけ引く

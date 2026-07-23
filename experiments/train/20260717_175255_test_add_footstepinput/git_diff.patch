@@ -1,0 +1,196 @@
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 509c1f68f..32448f2d2 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:23c6a37eba5e5493affaa6ef08ccfca576a4f76cbcb1bd91335573378278cc68
+-size 9824
++oid sha256:4a41fec74ce4952b53a2c8368afdd67190e909033ebd25d0b3474a201c5d25bb
++size 335264
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 45f819fa4..082673b97 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -75,6 +75,15 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.left_shin_idx = self.robot.body_names.index("left_shin")
+         self.right_shin_idx = self.robot.body_names.index("right_shin")
+ 
++        self.footstep_targets = torch.zeros(
++            self.num_envs, 4,
++            device=self.device
++        )
++        self.footstep_targets[:,0] = 0.35   # left_x
++        self.footstep_targets[:,1] = 0.15   # left_y
++        self.footstep_targets[:,2] = 0.35   # right_x
++        self.footstep_targets[:,3] = -0.15  # right_y
++
+         self.knee_down_count = torch.zeros(
+             self.num_envs,
+             dtype=torch.int32,
+@@ -180,7 +189,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             key_pos_w,
+         )
+ 
+-        policy_obs = compute_obs(
++        policy_obs = compute_policy_obs(
+             self.robot.data.joint_pos,
+             self.robot.data.joint_vel,
+             local_root_pos,
+@@ -190,6 +199,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             local_key_pos,
+             heading_sin,
+             heading_cos,
++            self.footstep_targets,
+         )
+ 
+         # -----------------------------------------------------------
+@@ -209,7 +219,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # )
+ 
+         # 【修正】AMP Obs を完全にローカル化
+-        amp_obs = compute_obs(
++        amp_obs = compute_amp_obs(
+             self.robot.data.joint_pos,
+             self.robot.data.joint_vel,
+             local_root_pos,
+@@ -307,9 +317,33 @@ class HumanoidAmpEnv(DirectRLEnv):
+         )
+         # 方向が合っている時だけ前進報酬を有効化
+         forward_reward = forward_reward * heading_reward
++
++        #足の位置誤差-----------------------------------------------------------------------
++        left_foot_pos_w = self.robot.data.body_pos_w[:, self.key_body_indexes[3]]
++        right_foot_pos_w = self.robot.data.body_pos_w[:, self.key_body_indexes[2]]
++        root_pos_w = self.robot.data.body_pos_w[:, self.ref_body_index]
++        root_rot_w = self.robot.data.body_quat_w[:, self.ref_body_index]
++        left_foot_local = localize_footstep(left_foot_pos_w, root_pos_w,root_rot_w,)
++        right_foot_local = localize_footstep(right_foot_pos_w,root_pos_w,root_rot_w,)
++        left_error = torch.norm(
++            left_foot_local[:, :2]
++            - self.footstep_targets[:, 0:2],
++            dim=-1,
++        )
++        right_error = torch.norm(
++            right_foot_local[:, :2]
++            - self.footstep_targets[:, 2:4],
++            dim=-1,
++        )
++        footstep_reward = torch.exp(
++            -10.0 * (left_error + right_error)
++        )
++
++        # 報酬の合成---------------------------------------------------------------------------
+         reward = (
+             1.0 * forward_reward
+             + 0.5 * height_reward
++            + 0.5 * footstep_reward
+             # + 0.5 * heading_reward
+         )
+ 
+@@ -318,9 +352,10 @@ class HumanoidAmpEnv(DirectRLEnv):
+             tqdm.write(
+                 f"step={self.common_step_counter} "
+                 f"height={root_height.mean().item():.3f} "
+-                f"vel={forward_reward.mean().item():.3f} "
++                f"forward={forward_reward.mean().item():.3f} "
+                 f"height_r={height_reward.mean().item():.3f} "
+                 f"heading={heading_reward.mean().item():.3f}"
++                f"footstep={footstep_reward.mean().item():.3f}"
+             )
+ 
+         return reward
+@@ -475,7 +510,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             body_positions[:, self.motion_key_body_indexes],
+         )
+ 
+-        amp_observation = compute_obs(
++        amp_observation = compute_amp_obs(
+             dof_positions[:, self.motion_dof_indexes],
+             dof_velocities[:, self.motion_dof_indexes],
+             local_root_pos,
+@@ -500,6 +535,25 @@ def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:#世界座
+     normal = quat_apply(q, ref_normal)
+     return torch.cat([tangent, normal], dim=len(tangent.shape) - 1)
+ 
++@torch.jit.script
++def localize_footstep(
++    foot_pos_w: torch.Tensor,
++    root_pos_w: torch.Tensor,
++    root_rot_w: torch.Tensor,
++) -> torch.Tensor:
++    # root基準にする
++    rel_pos = foot_pos_w - root_pos_w
++
++    # yawだけ除去
++    q_yaw_inv = quat_conjugate(yaw_quat(root_rot_w))
++
++    # local frameへ変換
++    foot_pos_local = quat_apply(
++        q_yaw_inv,
++        rel_pos,
++    )
++
++    return foot_pos_local
+ 
+ @torch.jit.script
+ def localize_observation(
+@@ -550,7 +604,39 @@ def localize_observation(
+     )
+ 
+ @torch.jit.script
+-def compute_obs(
++def compute_policy_obs(
++    dof_positions: torch.Tensor,
++    dof_velocities: torch.Tensor,
++    root_positions: torch.Tensor,
++    root_rotations: torch.Tensor,
++    root_linear_velocities: torch.Tensor,
++    root_angular_velocities: torch.Tensor,
++    key_body_positions: torch.Tensor,
++    #追加
++    heading_sin: torch.Tensor,
++    heading_cos: torch.Tensor,
++    footstep_targets: torch.Tensor,
++) -> torch.Tensor:
++    obs = torch.cat(
++        (
++            dof_positions,
++            dof_velocities,
++            root_positions[:, 2:3],  # root body height
++            quaternion_to_tangent_and_normal(root_rotations),
++            root_linear_velocities,
++            root_angular_velocities,
++            key_body_positions.view(key_body_positions.shape[0], -1),
++            #追加
++            heading_sin.unsqueeze(-1),
++            heading_cos.unsqueeze(-1),
++            footstep_targets,
++        ),
++        dim=-1,
++    )
++    return obs
++
++@torch.jit.script
++def compute_amp_obs(
+     dof_positions: torch.Tensor,
+     dof_velocities: torch.Tensor,
+     root_positions: torch.Tensor,
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+index 1c3019100..da38a5724 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+@@ -29,11 +29,11 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
+     decimation = 2
+ 
+     # spaces
+-    observation_space = 83#次元を2つ追加
++    observation_space = 87#次元を2+4つ追加
+     action_space = 28
+     state_space = 0
+     num_amp_observations = 2
+-    amp_observation_space = 83#次元を2つ追加
++    amp_observation_space = 83#次元を2+4つ追加
+ 
+     early_termination = True
+     termination_height = 0.5
