@@ -86,6 +86,9 @@ from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 from isaaclab.utils.math import create_rotation_matrix_from_view
 import os
 from isaaclab.sim import schemas
+import omni.appwindow  # ← ここを追加！
+import carb
+import carb.input
 
 def define_sensor() -> Camera:
     """Defines the camera sensor to add to the scene."""
@@ -95,7 +98,7 @@ def define_sensor() -> Camera:
     sim_utils.create_prim("/World/Origin_00", "Xform")
     # sim_utils.create_prim("/World/Origin_01", "Xform")
     camera_cfg = CameraCfg(
-        prim_path="/World/Origin_00/CameraSensor",  # ← ワイルドカ
+        prim_path="/World/Objects/CameraTracker/CameraSensor",  # ← ワイルドカ
         update_period=0,
         height=480,
         width=640,
@@ -114,7 +117,7 @@ def define_sensor() -> Camera:
             focal_length=8.0, 
             focus_distance=400.0, 
             horizontal_aperture=30, 
-            clipping_range=(0.1, 1.0e5)
+            clipping_range=(0.05, 1.0e2)
         ),
     )
     # Create camera
@@ -179,7 +182,9 @@ def design_scene() -> dict:
         prim_path="/World/Objects/CameraTracker", # ここを親のパスにする
         spawn=sim_utils.SphereCfg(
             radius=0.01, # 小さな球体（視覚的に邪魔なら見えないようにすることも可能）
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                disable_gravity=True
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
@@ -316,6 +321,20 @@ def add_camera_marker(height_map, cam_pos):
 
     return height_map
 
+# --- キーボード入力を管理するヘルパークラス ---
+class KeyboardController:
+    def __init__(self):
+        self.input = carb.input.acquire_input_interface()
+        self.appwindow = omni.appwindow.get_default_app_window()
+        self.keyboard = self.appwindow.get_keyboard()
+
+    def is_key_pressed(self, char: str) -> bool:
+        # キーが押されているかを判定
+        carb_key = getattr(carb.input.KeyboardInput, char.upper(), None)
+        if carb_key is not None:
+            return self.input.get_keyboard_value(self.keyboard, carb_key) > 0.0
+        return False
+
 def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
     window = ui.Window(
@@ -343,20 +362,21 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
     # Camera positions, targets, orientations
     camera_positions = torch.tensor([[2.5, 2.5, 2.5]], device=sim.device)
     camera_targets = torch.tensor([[0.0, 0.0, 0.0]], device=sim.device)
-    camera_pos = camera_positions[0]
-    target = camera_targets[0]
-    R = look_at_rotation(
-        camera_pos,
-        target
-    )
+    # camera_pos = camera_positions[0]
+    # target = camera_targets[0]
+    # R = look_at_rotation(
+    #     camera_pos,
+    #     target
+    # )
     # These orientations are in ROS-convention, and will position the cameras to view the origin
     camera_orientations = torch.tensor(  # noqa: F841
         [[-0.1759, 0.3399, 0.8205, -0.4247], [-0.4247, 0.8205, -0.3399, 0.1759]], device=sim.device
     )
 
     # -- Option-1: Set pose using view
-    camera.set_world_poses_from_view(camera_positions, camera_targets)
+    # camera.set_world_poses_from_view(camera_positions, camera_targets)
     camera_index = 0
+    keyboard_ctrl = KeyboardController()
 
     # Create the markers for the --draw option outside of is_running() loop
     if sim.has_gui() and args_cli.draw:
@@ -370,16 +390,40 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         sim.step()
         camera.update(dt=sim.get_physics_dt())
         count += 1
-        
-        if count % 10 != 0:
-            continue
+        tracker_obj = scene_entities["camera_tracker"]
+
+# --- キーボード入力に基づく移動量の計算 ---
+        speed = 2.0  # 移動速度
+        vx, vy, vz = 0.0, 0.0, 0.0
+
+        if keyboard_ctrl.is_key_pressed("W"):  # 前進
+            vx += speed
+        if keyboard_ctrl.is_key_pressed("S"):  # 後退
+            vx -= speed
+        if keyboard_ctrl.is_key_pressed("A"):  # 左移動
+            vy += speed
+        if keyboard_ctrl.is_key_pressed("D"):  # 右移動
+            vy -= speed
+        if keyboard_ctrl.is_key_pressed("Q"):  # 上昇
+            vz += speed
+        if keyboard_ctrl.is_key_pressed("E"):  # 下降
+            vz -= speed
+
+        # トラッカーオブジェクトに速度（Velocity）をセットして動かす
+        velocity = torch.tensor([[vx, vy, vz, 0.0, 0.0, 0.0]], device=sim.device)
+        tracker_obj.write_root_velocity_to_sim(velocity)
 
         # 1. 深度から点群への変換・フィルタリング
                 # 3. 9個目のオブジェクトの正確な位置・姿勢を点群生成に利用
         # 物理エンジンが管理する確実なオブジェクトから座標と姿勢を取得
-        tracker_obj = scene_entities["camera_tracker"]
+        
         obj_pos = tracker_obj.data.root_pos_w[0]
         obj_quat = tracker_obj.data.root_quat_w[0]
+
+        camera.set_world_poses(obj_pos.unsqueeze(0), obj_quat.unsqueeze(0))
+
+        if count % 10 != 0:
+            continue
         depth = camera.data.output["distance_to_camera"][camera_index]
         depth = depth.squeeze(-1)
         
@@ -391,6 +435,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             keep_invalid=False,
             device=sim.device
         )
+        
+# ──【デバッグ用】点群のZ座標の範囲を確認する ──
+        if count % 50 == 0:
+            z_min = torch.min(points_world[:, 2]).item()
+            z_max = torch.max(points_world[:, 2]).item()
+            print(f"[DEBUG] Points Z range -> min: {z_min:.3f}m, max: {z_max:.3f}m")
         # mask = torch.isfinite(points_cam).all(dim=1)
         # points_cam_isaac = points_cam.clone()
         
@@ -411,7 +461,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
         # 2. ヒートマップとマーカーの生成
         height_map = create_height_map(points_world.cpu().numpy())
-        height_map = add_camera_marker(height_map, camera_pos.cpu().numpy())
+        height_map = add_camera_marker(height_map, obj_pos.cpu().numpy())
 
         # 3. 描画・保存処理（10ステップに1回のみ実行）
         rgb = camera.data.output["rgb"][0].cpu().numpy()
