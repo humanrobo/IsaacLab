@@ -5,6 +5,7 @@
 
 seed: 42
 
+
 # Models are instantiated using skrl's model instantiator utility
 # https://skrl.readthedocs.io/en/latest/api/utils/model_instantiators.html
 models:
@@ -15,13 +16,13 @@ models:
     clip_log_std: True
     min_log_std: -20.0
     max_log_std: 2.0
-    initial_log_std: -1.0
-    fixed_log_std: False
+    initial_log_std: -2.9
+    fixed_log_std: True
     network:
       - name: net
         input: OBSERVATIONS
-        layers: [256, 128]
-        activations: elu
+        layers: [1024, 512]
+        activations: relu
     output: ACTIONS
   value:  # see deterministic_model parameters
     class: DeterministicMixin
@@ -29,9 +30,20 @@ models:
     network:
       - name: net
         input: OBSERVATIONS
-        layers: [256, 128]
-        activations: elu
+        layers: [1024, 512]
+        activations: relu
     output: ONE
+  # ★ AMPを外すため、識別器（discriminator）のモデル定義をコメントアウト
+  # discriminator:
+  #   class: DeterministicMixin
+  #   clip_actions: False
+  #   network:
+  #     - name: net
+  #       input: OBSERVATIONS
+  #       layers: [1024, 512]
+  #       activations: relu
+  #   output: ONE
+
 
 # Rollout memory
 # https://skrl.readthedocs.io/en/latest/api/memories/random.html
@@ -39,39 +51,62 @@ memory:
   class: RandomMemory
   memory_size: -1  # automatically determined (same as agent:rollouts)
 
-# PPO agent configuration (field names are from PPO_DEFAULT_CONFIG)
+# ★ AMP用のメモリ（モーションデータセット等）は不要なためコメントアウト
+# motion_dataset:
+#   class: RandomMemory
+#   memory_size: 200000
+
+# reply_buffer:
+#   class: RandomMemory
+#   memory_size: 1000000
+
+
+# PPOエージェント構成に変更（AMPクラスからPPOクラスへ）
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html
 agent:
-  class: PPO
-  rollouts: 24
-  learning_epochs: 5
-  mini_batches: 4
+  class: PPO  # ★ AMP から PPO に変更
+  rollouts: 16
+  learning_epochs: 6
+  mini_batches: 2
   discount_factor: 0.99
   gae_lambda: 0.95
-  learning_rate: 3.0e-04
+  learning_rate: 5.0e-05
   learning_rate_scheduler: null
   learning_rate_scheduler_kwargs: null
   observation_preprocessor: RunningStandardScaler
   observation_preprocessor_kwargs: null
   value_preprocessor: RunningStandardScaler
   value_preprocessor_kwargs: null
+  # ★ AMP固有のプレプロセッサ設定は削除・コメントアウト
+  # amp_observation_preprocessor: RunningStandardScaler
+  # amp_observation_preprocessor_kwargs: null
   random_timesteps: 0
   learning_starts: 0
-  grad_norm_clip: 1.0
+  grad_norm_clip: 0.0
   ratio_clip: 0.2
   value_clip: 0.2
-  entropy_loss_scale: 0.005
-  value_loss_scale: 1.0
+  entropy_loss_scale: 0.0
+  value_loss_scale: 2.5
+  # ★ AMP固有の損失スケールやパラメータをコメントアウト
+  # discriminator_loss_scale: 5.0
+  # amp_batch_size: 512
+  # task_reward_scale: 0.5
+  # style_reward_scale: 1.0
+  # discriminator_batch_size: 4096
+  # discriminator_logit_regularization_scale: 0.05
+  # discriminator_gradient_penalty_scale: 5.0
+  # discriminator_weight_decay_scale: 1.0e-04
   time_limit_bootstrap: False
   experiment:
-    directory: "unicycle_navigation"
+    directory: "bruce_walk_ppo"  # フォルダ名を適宜変更
     experiment_name: ""
     write_interval: auto
     checkpoint_interval: auto
+
 
 # Sequential trainer
 # https://skrl.readthedocs.io/en/latest/api/trainers/sequential.html
 trainer:
   class: SequentialTrainer
-  timesteps: 50000
+  timesteps: 100000
   environment_info: log

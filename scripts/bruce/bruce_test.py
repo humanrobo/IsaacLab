@@ -139,6 +139,11 @@ def main():
     print("Joint names:")
     for i, name in enumerate(bruce.data.joint_names):
         print(i, name)
+    # ★ ここを追加：リンク名（ボディ名）のリストを出力
+    print("Number of bodies (links):", bruce.num_bodies)
+    print("Body names:")
+    for i, name in enumerate(bruce.data.body_names):
+        print(i, name)
 
     print("[INFO]: Setup complete...")
     # Run the simulator
