@@ -29,41 +29,7 @@ class BruceAmpEnv(DirectRLEnv):
 
     def __init__(self, cfg: BruceAmpEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-        # --- クラスの初期化（__init__など）に追加 ---------------------
-        # # 確認用コード（実行するとターミナルにリンク名一覧が出ます）
-        # print("--- H1 Robot Available Body Names ---")
         print(self.robot.data.body_names)
-        # print(self.robot.data.joint_names)
-        # print(self.robot.data.body_names)
-        # print("-------------------------------------")
-        
-        # import torch
-        # from tqdm import tqdm  # 必ずファイルの先頭か、ここでインポートしてください
-
-        # パス設定（絶対パス）初期方向目標の確率分布
-        # self.prob_file = "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/yaw_prob_distribution.pt"
-
-        # # ログ文字列を一度組み立てる
-        # log_msg = "\n" + "="*50 + "\n"
-        # if os.path.exists(self.prob_file):
-        #     log_msg += f"🔥【SUCCESS】確率分布ファイルを検出しました！: {self.prob_file}\n"
-        #     log_msg += f"[Env] Loading target yaw distribution from {self.prob_file}\n"
-            
-        #     # データのロードとデバイス転送
-        #     dist_data = torch.load(self.prob_file, map_location=self.device)
-        #     self.yaw_bin_probs = dist_data["probabilities"].to(self.device)
-            
-        #     log_msg += f"📊 読み込んだ確率分布: {self.yaw_bin_probs.tolist()}\n"
-        #     self.use_biased_yaw = True
-        # else:
-        #     log_msg += f"❌【WARNING】確率分布ファイルが見つかりません: {self.prob_file}\n"
-        #     log_msg += "[Env] No distribution file found. Using uniform random yaw.\n"
-        #     log_msg += "🎲 デフォルトの一様ランダム（通常のウォーク）で動きます。\n"
-        #     self.use_biased_yaw = False
-        # log_msg += "="*50 + "\n"
-        # # tqdm.write を使ってプログレスバーを壊さずに出力！
-        # tqdm.write(log_msg)
-        # --- クラスの初期化（__init__など）に追加終了 ----------------
 
         #追加
         self.goal_yaw = torch.zeros(self.num_envs, device=self.device)
@@ -75,38 +41,6 @@ class BruceAmpEnv(DirectRLEnv):
         self.action_scale = (dof_upper_limits - dof_lower_limits) *0.2
         self.left_shin_idx = self.robot.body_names.index("knee_pitch_link_l")
         self.right_shin_idx = self.robot.body_names.index("knee_pitch_link_r")
-
-        #footstep_targetsの初期化
-        self.footstep_targets = torch.zeros(
-            self.num_envs, 4,
-            device=self.device
-        )
-        self.footstep_targets[:,0] = 0.35   # left_x
-        self.footstep_targets[:,1] = 0.15   # left_y
-        self.footstep_targets[:,2] = 0.35   # right_x
-        self.footstep_targets[:,3] = -0.15  # right_y
-        self.left_foot_idx = self.robot.body_names.index("ankle_pitch_link_l")
-        self.right_foot_idx = self.robot.body_names.index("ankle_pitch_link_r")
-        self.prev_left_contact = torch.zeros(
-            self.num_envs,
-            dtype=torch.bool,
-            device=self.device
-        )
-        self.prev_right_contact = torch.zeros(
-            self.num_envs,
-            dtype=torch.bool,
-            device=self.device
-        )
-        # 着地点保存
-        self.left_landing_pos = torch.zeros(
-            self.num_envs, 2,
-            device=self.device,
-        )
-
-        self.right_landing_pos = torch.zeros(
-            self.num_envs, 2,
-            device=self.device,
-        )
 
         # 膝立ち判定用のカウンタ
         self.knee_down_count = torch.zeros(
@@ -427,7 +361,7 @@ class BruceAmpEnv(DirectRLEnv):
                 f"forward={forward_reward.mean().item():.3f} "
                 f"height_r={height_reward.mean().item():.3f} "
                 f"heading={heading_reward.mean().item():.3f}"
-                f"footstep={footstep_reward.mean().item():.3f}"
+                # f"footstep={footstep_reward.mean().item():.3f}"
             )
 
         return reward

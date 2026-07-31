@@ -75,11 +75,7 @@ from isaaclab.markers.config import RAY_CASTER_MARKER_CFG
 from isaaclab.sensors.camera import Camera, CameraCfg
 from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 from isaaclab.utils import convert_dict_to_backend
-from isaaclab.utils.math import (
-    convert_camera_frame_orientation_convention,
-    create_rotation_matrix_from_view,
-    quat_from_matrix,
-)
+
 
 def define_sensor() -> Camera:
     """Defines the camera sensor to add to the scene as a child of CameraTracker."""
@@ -158,27 +154,26 @@ def design_scene() -> dict:
         )
         scene_entities[f"rigid_object{i}"] = RigidObject(cfg=obj_cfg)
 
-    # # --- 【修正】単なるXformではなく、物理オブジェクト（RigidObject）として親を作る ---
-    # cam_init_pos = [2.5, 2.5, 2.5]
-    # cam_init_quat = [-0.1759, 0.3399, 0.8205, -0.4247] # (x, y, z, w)
+    # --- 【修正】単なるXformではなく、物理オブジェクト（RigidObject）として親を作る ---
+    cam_init_pos = [2.5, 2.5, 2.5]
+    cam_init_quat = [-0.1759, 0.3399, 0.8205, -0.4247] # (x, y, z, w)
 
-    # tracker_obj_cfg = RigidObjectCfg(
-    #     prim_path="/World/Objects/CameraTracker", # ここを親のパスにする
-    #     spawn=sim_utils.SphereCfg(
-    #         radius=0.01, # 小さな球体（視覚的に邪魔なら見えないようにすることも可能）
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(),
-    #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(
-    #         pos=cam_init_pos,
-    #         rot=cam_init_quat,
-    #     ),
-    # )
-    # # Python側の辞書に登録するのでKeyErrorが起きなくなる
-    # scene_entities["camera_tracker"] = RigidObject(cfg=tracker_obj_cfg)
-    sim_utils.create_prim("/World/Objects/CameraTracker", "Xform")
+    tracker_obj_cfg = RigidObjectCfg(
+        prim_path="/World/Objects/CameraTracker", # ここを親のパスにする
+        spawn=sim_utils.SphereCfg(
+            radius=0.01, # 小さな球体（視覚的に邪魔なら見えないようにすることも可能）
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=cam_init_pos,
+            rot=cam_init_quat,
+        ),
+    )
+    # Python側の辞書に登録するのでKeyErrorが起きなくなる
+    scene_entities["camera_tracker"] = RigidObject(cfg=tracker_obj_cfg)
 
     # カメラセンサーを定義（親である CameraTracker の子階層にする）
     camera = define_sensor()
@@ -217,6 +212,11 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         pc_markers = VisualizationMarkers(cfg)
 
     frame_count = 0
+
+    poses, quat = camera._view.get_world_poses()
+
+    print("camera.data.quat_w_world =", camera.data.quat_w_world)
+    print("view quat =", quat)
 
     # Simulate physics
     while simulation_app.is_running():
@@ -261,33 +261,32 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
         # 3. 9個目のオブジェクトの正確な位置・姿勢を点群生成に利用
         # 物理エンジンが管理する確実なオブジェクトから座標と姿勢を取得
-        # tracker_obj = scene_entities["camera_tracker"]
-        # obj_pos = tracker_obj.data.root_pos_w[0]
-        # obj_quat = tracker_obj.data.root_quat_w[0]
-        # print(f"Frame {frame_count} - Tracker Object Position:", obj_pos)
+        tracker_obj = scene_entities["camera_tracker"]
+        obj_pos = tracker_obj.data.root_pos_w[0]
+        obj_quat = tracker_obj.data.root_quat_w[0]
+        print(f"Frame {frame_count} - Tracker Object Position:", obj_pos)
         if sim.has_gui() and args_cli.draw and "distance_to_image_plane" in camera.data.output.keys():
             depth = camera.data.output["distance_to_image_plane"][camera_index]
             depth = depth.squeeze(-1)
 
-            # Cameraの実際のワールド姿勢を取得
-            camera_positions, camera_quats_gl = camera._view.get_world_poses()
-            camera_quats_ros = convert_camera_frame_orientation_convention(
-                camera_quats_gl,
-                origin="opengl",
-                target="ros",
+            pointcloud = create_pointcloud_from_depth(
+                intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],
+                depth=depth,
+                position=obj_pos,     # 9個目のトラッカーオブジェクトの位置
+                orientation=obj_quat, # 9個目のトラッカーオブジェクトの姿勢
+                device=sim.device,
             )
+            # Cameraの実際のワールド姿勢を取得
+            camera_positions, camera_quats = camera._view.get_world_poses()
+
+            # IsaacLabのViewはワールドクォータニオン(w,x,y,z)を返す
             pointcloud = create_pointcloud_from_depth(
                 intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],
                 depth=depth,
                 position=camera_positions[camera_index],
-                orientation=camera_quats_ros[camera_index],   # ←ROSに変換したものを使う
+                orientation=camera_quats[camera_index],
                 device=sim.device,
             )
-            print(f"Frame {frame_count} - cmeara Position:", camera_positions[camera_index], camera_quats_ros[camera_index])
-            camera_positions, camera_quats = camera._view.get_world_poses()
-            print("view quat:", camera_quats[0])
-            print("expected ros quat:", torch.tensor([-0.1759, 0.3399, 0.8205, -0.4247], device=sim.device))
-
             if pointcloud.size()[0] > 0:
                 valid_mask = torch.isfinite(pointcloud).all(dim=-1)
                 pointcloud = pointcloud[valid_mask]

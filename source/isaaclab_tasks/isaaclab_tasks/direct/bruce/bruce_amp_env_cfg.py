@@ -29,7 +29,7 @@ class BruceAmpEnvCfg(DirectRLEnvCfg):
     decimation = 2
 
     # spaces
-    observation_space = 67#次元を2+4つ追加
+    observation_space = 64#次元を2+4つ追加
     action_space = 16
 
     state_space = 0
