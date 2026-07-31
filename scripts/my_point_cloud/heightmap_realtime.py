@@ -437,37 +437,37 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # 1. 深度から点群への変換・フィルタリング
                 # 3. 9個目のオブジェクトの正確な位置・姿勢を点群生成に利用
         # 物理エンジンが管理する確実なオブジェクトから座標と姿勢を取得
-        
         # obj_pos = tracker_obj.data.root_pos_w[0]
         # obj_quat = tracker_obj.data.root_quat_w[0]
-
         # camera.set_world_poses(obj_pos.unsqueeze(0), obj_quat.unsqueeze(0))
 
         if count % 10 != 0:
             continue
         depth = camera.data.output["distance_to_camera"][camera_index]
         depth = depth.squeeze(-1)
-        
+
         camera_positions, camera_quats_gl = camera._view.get_world_poses()
         camera_quats_ros = convert_camera_frame_orientation_convention(
             camera_quats_gl,
             origin="opengl",
             target="ros",
         )
-        points_world = create_pointcloud_from_depth(
+
+        #セマセグ用点群
+        points_world_img = create_pointcloud_from_depth(
             intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],
             depth=depth,
+            keep_invalid=True,
             position=camera_positions[camera_index],
             orientation=camera_quats_ros[camera_index],   # ←ROSに変換したものを使う
             device=sim.device,
         )
+        points_world_img = points_world_img.reshape(depth.shape[0], depth.shape[1], 3)
+        valid_mask = torch.isfinite(points_world_img).all(dim=-1)
         print(f"Frame {count} - cmeara Position:", camera_positions[camera_index], camera_quats_ros[camera_index])
-        
-# ──【デバッグ用】点群のZ座標の範囲を確認する ──
-        if count % 50 == 0:
-            z_min = torch.min(points_world[:, 2]).item()
-            z_max = torch.max(points_world[:, 2]).item()
-            print(f"[DEBUG] Points Z range -> min: {z_min:.3f}m, max: {z_max:.3f}m")
+        points_world_img[~valid_mask] = 0
+
+        # region 古(座標変換とマスク)
         # mask = torch.isfinite(points_cam).all(dim=1)
         # points_cam_isaac = points_cam.clone()
         
@@ -475,9 +475,19 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         #     R @ points_cam_isaac.T
         # ).T + camera_pos
         
-        mask = torch.isfinite(points_world).all(dim=1)
-        points_world = points_world[mask]
-        
+        # mask = torch.isfinite(points_world).all(dim=1)
+        # points_world = points_world[mask]
+        # endregion
+
+        # region 深度用点群 
+        points_world = create_pointcloud_from_depth(
+            intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],
+            depth=depth,
+            keep_invalid=False,
+            position=camera_positions[camera_index],
+            orientation=camera_quats_ros[camera_index],   # ←ROSに変換したものを使う
+            device=sim.device,
+        )
         bounds_mask = (
             (points_world[:, 0] >= xmin) & (points_world[:, 0] <= xmax) &
             (points_world[:, 1] >= ymin) & (points_world[:, 1] <= ymax) &
@@ -485,8 +495,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         )
         points_world = points_world[bounds_mask]
         points_world = points_world[torch.isfinite(points_world).all(dim=1)]
+        # endregion
 
-        # 2. ヒートマップとマーカーの生成
+        # region 2. ヒートマップとマーカーの生成
         height_map = create_height_map(points_world.cpu().numpy())
         height_map = add_camera_marker(height_map, camera_positions[camera_index].cpu().numpy())
 
@@ -498,43 +509,89 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         with open(texture_path, "wb") as f:
             f.write(texture)
         image_widget.source_url = texture_path
+        # endregion
 
-        #セマセグ
-        semantic = camera.data.output["semantic_segmentation"][0].squeeze().cpu().numpy()
-        semantic_rgb = np.zeros((semantic.shape[0], semantic.shape[1], 3), dtype=np.uint8)
+        # ==========================
+        # セマンティックセグメンテーション表示
+        # ==========================
+
+        semantic = camera.data.output["semantic_segmentation"][0].squeeze()
+        semantic_np = semantic.cpu().numpy()
+        semantic_info = camera.data.info[0]["semantic_segmentation"]["idToLabels"]
         colors = {
-            0: [0, 0, 0],
-            1: [80, 80, 80],
-            2: [255, 0, 0],
-            3: [0, 255, 0],
+            0: [0, 0, 0],        # BACKGROUND
+            1: [80, 80, 80],     # UNLABELLED
+            2: [255, 0, 0],      # cylinder
+            3: [0, 255, 0],      # cube
         }
-        semantic_rgb = np.zeros((*semantic.shape, 3), dtype=np.uint8)
-        for label_id in np.unique(semantic):
-            semantic_rgb[semantic == label_id] = colors.get(int(label_id), [255, 255, 255])
-        semantic_path = f"/tmp/semantic_{count}.png"
-        Image.fromarray(semantic_rgb).save(semantic_path)
+        semantic_rgb = np.zeros((*semantic_np.shape, 3), dtype=np.uint8)
+        for label_id in np.unique(semantic_np):
+            semantic_rgb[semantic_np == label_id] = colors.get(
+                int(label_id),
+                [255, 255, 255]
+            )
         semantic_pil = Image.fromarray(semantic_rgb)
         draw = ImageDraw.Draw(semantic_pil)
-        info = camera.data.info[0]["semantic_segmentation"]["idToLabels"]
-        y = 10
-        for label_id in np.unique(semantic):
-            if label_id == 0:
+        # クラス名を画像に描画
+        for label_id in np.unique(semantic_np):
+            if label_id < 2:
                 continue
-            mask = semantic == label_id
+            mask = (
+                (semantic_np == label_id)
+                &
+                valid_mask.cpu().numpy()
+            )
             ys, xs = np.where(mask)
             if len(xs) == 0:
                 continue
             cx = int(xs.mean())
             cy = int(ys.mean())
-            name = info[str(int(label_id))]["class"]
+            name = semantic_info[str(int(label_id))]["class"]
             draw.text(
                 (cx, cy),
                 name,
                 fill=(255,255,255)
-    )
-            y += 25
+            )
+        semantic_path = f"/tmp/semantic_{count}.png"
         semantic_pil.save(semantic_path)
         semantic_widget.source_url = semantic_path
+        # ==========================
+        # Instance segmentation
+        # 物体ごとの3D座標取得
+        # ==========================
+        instance = camera.data.output["instance_segmentation_fast"][0]
+        instance_data = camera.data.info[0]["instance_segmentation_fast"]
+        instance_info = instance_data["idToSemantics"]
+        instance_labels = instance_data["idToLabels"]
+        for instance_id, obj_info in instance_info.items():
+            cls = obj_info.get("class", "unknown")
+            # 背景除外
+            if cls in ["BACKGROUND", "UNLABELLED"]:
+                continue
+            # RGBAカラーIDをTensor化
+            instance_id_tensor = torch.tensor(
+                instance_id,
+                device=instance.device,
+                dtype=instance.dtype
+            )
+            # この物体だけのpixel mask
+            mask = torch.all(
+                instance == instance_id_tensor,
+                dim=-1
+            )
+            # 深度が有効なpixelのみ
+            mask = mask & valid_mask
+            # 対応する3D点群
+            points = points_world_img[mask]
+            if len(points) == 0:
+                continue
+            # 物体中心座標
+            center = points.mean(dim=0)
+            print(
+                instance_labels[instance_id],
+                cls,
+                center
+            )
 
 
 def main():
