@@ -89,6 +89,9 @@ from isaaclab.sim import schemas
 import omni.appwindow  # ← ここを追加！
 import carb
 import carb.input
+from isaaclab.utils.math import (
+    convert_camera_frame_orientation_convention,
+)
 
 def define_sensor() -> Camera:
     """Defines the camera sensor to add to the scene."""
@@ -174,28 +177,29 @@ def design_scene() -> dict:
         )
         scene_entities[f"rigid_object{i}"] = RigidObject(cfg=obj_cfg)
 
-# --- 【修正】単なるXformではなく、物理オブジェクト（RigidObject）として親を作る ---
-    cam_init_pos = [2.5, 2.5, 2.5]
-    cam_init_quat = [-0.1759, 0.3399, 0.8205, -0.4247] # (x, y, z, w)
+# # --- 【修正】単なるXformではなく、物理オブジェクト（RigidObject）として親を作る ---
+#     cam_init_pos = [2.5, 2.5, 2.5]
+#     cam_init_quat = [-0.1759, 0.3399, 0.8205, -0.4247] # (x, y, z, w)
 
-    tracker_obj_cfg = RigidObjectCfg(
-        prim_path="/World/Objects/CameraTracker", # ここを親のパスにする
-        spawn=sim_utils.SphereCfg(
-            radius=0.01, # 小さな球体（視覚的に邪魔なら見えないようにすることも可能）
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=True
-            ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=cam_init_pos,
-            rot=cam_init_quat,
-        ),
-    )
-    # Python側の辞書に登録するのでKeyErrorが起きなくなる
-    scene_entities["camera_tracker"] = RigidObject(cfg=tracker_obj_cfg)
+#     tracker_obj_cfg = RigidObjectCfg(
+#         prim_path="/World/Objects/CameraTracker", # ここを親のパスにする
+#         spawn=sim_utils.SphereCfg(
+#             radius=0.01, # 小さな球体（視覚的に邪魔なら見えないようにすることも可能）
+#             rigid_props=sim_utils.RigidBodyPropertiesCfg(
+#                 disable_gravity=True
+#             ),
+#             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+#             collision_props=sim_utils.CollisionPropertiesCfg(),
+#             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+#         ),
+#         init_state=RigidObjectCfg.InitialStateCfg(
+#             pos=cam_init_pos,
+#             rot=cam_init_quat,
+#         ),
+#     )
+#     # Python側の辞書に登録するのでKeyErrorが起きなくなる
+#     scene_entities["camera_tracker"] = RigidObject(cfg=tracker_obj_cfg)
+    sim_utils.create_prim("/World/Objects/CameraTracker", "Xform")
     # Sensors
     camera = define_sensor()
     # return the scene information
@@ -362,6 +366,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
     # Camera positions, targets, orientations
     camera_positions = torch.tensor([[2.5, 2.5, 2.5]], device=sim.device)
     camera_targets = torch.tensor([[0.0, 0.0, 0.0]], device=sim.device)
+    camera.set_world_poses_from_view(camera_positions, camera_targets)
+
     # camera_pos = camera_positions[0]
     # target = camera_targets[0]
     # R = look_at_rotation(
@@ -388,9 +394,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
     count = 0
     while simulation_app.is_running():
         sim.step()
-        camera.update(dt=sim.get_physics_dt())
+        sim_dt = sim.get_physics_dt()
         count += 1
-        tracker_obj = scene_entities["camera_tracker"]
+        # tracker_obj = scene_entities["camera_tracker"]
 
 # --- キーボード入力に基づく移動量の計算 ---
         speed = 2.0  # 移動速度
@@ -410,31 +416,50 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             vz -= speed
 
         # トラッカーオブジェクトに速度（Velocity）をセットして動かす
-        velocity = torch.tensor([[vx, vy, vz, 0.0, 0.0, 0.0]], device=sim.device)
-        tracker_obj.write_root_velocity_to_sim(velocity)
+        # velocity = torch.tensor([[vx, vy, vz, 0.0, 0.0, 0.0]], device=sim.device)
+        # tracker_obj.write_root_velocity_to_sim(velocity)
+        camera_positions, camera_quats = camera._view.get_world_poses()
+
+        camera_positions[0] += torch.tensor(
+            [vx, vy, vz],
+            device=sim.device
+        ) * sim_dt
+
+        camera._view.set_world_poses(
+            positions=camera_positions,
+            orientations=camera_quats,
+        )
+
+        camera.update(dt=sim.get_physics_dt())
 
         # 1. 深度から点群への変換・フィルタリング
                 # 3. 9個目のオブジェクトの正確な位置・姿勢を点群生成に利用
         # 物理エンジンが管理する確実なオブジェクトから座標と姿勢を取得
         
-        obj_pos = tracker_obj.data.root_pos_w[0]
-        obj_quat = tracker_obj.data.root_quat_w[0]
+        # obj_pos = tracker_obj.data.root_pos_w[0]
+        # obj_quat = tracker_obj.data.root_quat_w[0]
 
-        camera.set_world_poses(obj_pos.unsqueeze(0), obj_quat.unsqueeze(0))
+        # camera.set_world_poses(obj_pos.unsqueeze(0), obj_quat.unsqueeze(0))
 
         if count % 10 != 0:
             continue
         depth = camera.data.output["distance_to_camera"][camera_index]
         depth = depth.squeeze(-1)
         
-        points_world = create_pointcloud_from_depth(
-            intrinsic_matrix=camera.data.intrinsic_matrices[0],
-            depth=depth,
-            position=obj_pos,     # 9個目のトラッカーオブジェクトの位置
-            orientation=obj_quat, 
-            keep_invalid=False,
-            device=sim.device
+        camera_positions, camera_quats_gl = camera._view.get_world_poses()
+        camera_quats_ros = convert_camera_frame_orientation_convention(
+            camera_quats_gl,
+            origin="opengl",
+            target="ros",
         )
+        points_world = create_pointcloud_from_depth(
+            intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],
+            depth=depth,
+            position=camera_positions[camera_index],
+            orientation=camera_quats_ros[camera_index],   # ←ROSに変換したものを使う
+            device=sim.device,
+        )
+        print(f"Frame {count} - cmeara Position:", camera_positions[camera_index], camera_quats_ros[camera_index])
         
 # ──【デバッグ用】点群のZ座標の範囲を確認する ──
         if count % 50 == 0:
@@ -461,7 +486,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
         # 2. ヒートマップとマーカーの生成
         height_map = create_height_map(points_world.cpu().numpy())
-        height_map = add_camera_marker(height_map, obj_pos.cpu().numpy())
+        height_map = add_camera_marker(height_map, camera_positions[camera_index].cpu().numpy())
 
         # 3. 描画・保存処理（10ステップに1回のみ実行）
         rgb = camera.data.output["rgb"][0].cpu().numpy()

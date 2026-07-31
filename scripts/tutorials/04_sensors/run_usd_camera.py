@@ -77,8 +77,6 @@ from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 from isaaclab.utils import convert_dict_to_backend
 from isaaclab.utils.math import (
     convert_camera_frame_orientation_convention,
-    create_rotation_matrix_from_view,
-    quat_from_matrix,
 )
 
 def define_sensor() -> Camera:
