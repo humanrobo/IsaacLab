@@ -92,6 +92,7 @@ import carb.input
 from isaaclab.utils.math import (
     convert_camera_frame_orientation_convention,
 )
+from PIL import ImageDraw, ImageFont
 
 def define_sensor() -> Camera:
     """Defines the camera sensor to add to the scene."""
@@ -113,7 +114,7 @@ def define_sensor() -> Camera:
             "instance_segmentation_fast",
             "instance_id_segmentation_fast",
         ],
-        colorize_semantic_segmentation=True,
+        colorize_semantic_segmentation=False,
         colorize_instance_id_segmentation=True,
         colorize_instance_segmentation=True,
         spawn=sim_utils.PinholeCameraCfg(
@@ -341,13 +342,14 @@ class KeyboardController:
 
 def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
-    window = ui.Window(
-        "Height Map",
-        width=600,
-        height=600
-    )
-    with window.frame:
+    # HeightMap
+    height_window = ui.Window("Height Map",width=600,height=600)
+    with height_window.frame:
         image_widget = ui.Image()
+    # Semantic
+    semantic_window = ui.Window("Semantic",width=600,height=600)
+    with semantic_window.frame:
+        semantic_widget = ui.Image()
 
     """Run the simulator."""
     # extract entities for simplified notation
@@ -491,14 +493,48 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # 3. 描画・保存処理（10ステップに1回のみ実行）
         rgb = camera.data.output["rgb"][0].cpu().numpy()
         Image.fromarray(rgb).save("/tmp/latest_rgb.png")
-
         texture = heightmap_to_texture(height_map)
         texture_path = f"/tmp/heightmap_{count}.png"
-        
         with open(texture_path, "wb") as f:
             f.write(texture)
-            
         image_widget.source_url = texture_path
+
+        #セマセグ
+        semantic = camera.data.output["semantic_segmentation"][0].squeeze().cpu().numpy()
+        semantic_rgb = np.zeros((semantic.shape[0], semantic.shape[1], 3), dtype=np.uint8)
+        colors = {
+            0: [0, 0, 0],
+            1: [80, 80, 80],
+            2: [255, 0, 0],
+            3: [0, 255, 0],
+        }
+        semantic_rgb = np.zeros((*semantic.shape, 3), dtype=np.uint8)
+        for label_id in np.unique(semantic):
+            semantic_rgb[semantic == label_id] = colors.get(int(label_id), [255, 255, 255])
+        semantic_path = f"/tmp/semantic_{count}.png"
+        Image.fromarray(semantic_rgb).save(semantic_path)
+        semantic_pil = Image.fromarray(semantic_rgb)
+        draw = ImageDraw.Draw(semantic_pil)
+        info = camera.data.info[0]["semantic_segmentation"]["idToLabels"]
+        y = 10
+        for label_id in np.unique(semantic):
+            if label_id == 0:
+                continue
+            mask = semantic == label_id
+            ys, xs = np.where(mask)
+            if len(xs) == 0:
+                continue
+            cx = int(xs.mean())
+            cy = int(ys.mean())
+            name = info[str(int(label_id))]["class"]
+            draw.text(
+                (cx, cy),
+                name,
+                fill=(255,255,255)
+    )
+            y += 25
+        semantic_pil.save(semantic_path)
+        semantic_widget.source_url = semantic_path
 
 
 def main():
