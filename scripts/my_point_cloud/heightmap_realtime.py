@@ -277,33 +277,25 @@ def heightmap_to_texture(height_map):
 
     return buffer.getvalue()
 
-
 def look_at_rotation(camera_pos, target):
-
     forward = target - camera_pos
     forward = forward / torch.norm(forward)
-
     world_up = torch.tensor(
         [0.0,0.0,1.0],
         device=camera_pos.device
     )
-
     if torch.abs(torch.dot(forward, world_up)) > 0.99:
         world_up = torch.tensor([0.0, 1.0, 0.0], device=camera_pos.device)
-
     right = torch.linalg.cross(
         forward,
         world_up
     )
-
     right = right / torch.norm(right)
-
     # up = torch.linalg.cross(
     #     right,
     #     forward
     # )
     up = torch.linalg.cross(right, forward)
-
     R = torch.stack(
         [
             right,
@@ -422,7 +414,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         colorize_semantic_segmentation=camera.cfg.colorize_semantic_segmentation,
     )
 
-    camera_positions = torch.tensor([[0.0, 0.0, 5.0]], device=sim.device)
+    camera_positions = torch.tensor([[2.5, 2.5, 2.5]], device=sim.device)
     camera_targets = torch.tensor([[0.0, 0.0, 0.0]], device=sim.device)
     camera.set_world_poses_from_view(camera_positions, camera_targets)
 
@@ -478,11 +470,19 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         camera_positions, camera_quats_gl = camera._view.get_world_poses()
         cam_pos = camera_positions[camera_index]
         cam_quat_gl = camera_quats_gl[camera_index]
-        R = look_at_rotation(
-            camera_positions[0],
-            camera_targets[0],
+        #回転行列計算
+        # R = look_at_rotation(
+        #     camera_positions[0],
+        #     camera_targets[0],
+        # )
+        camera_quats_ros = convert_camera_frame_orientation_convention(
+            camera_quats_gl,
+            origin="opengl",
+            target="ros",
         )
-        print(R)
+        R = matrix_from_quat(camera_quats_ros[camera_index])
+        print(R.T @ R)
+        print(torch.det(R))
 
         # region 各画素のカメラ座標
         fx = camera.data.intrinsic_matrices[camera_index][0, 0]
@@ -495,76 +495,78 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             torch.arange(H, device=depth.device),
             indexing="xy",
         )
-        z = depth
+        # 有効なdepthだけ
+        # valid = torch.isfinite(depth)
+        valid = (
+            torch.isfinite(depth)
+            & (depth > 0.0)
+            & (depth < 10.0)
+        )
+
+        z = torch.where(valid, depth, torch.zeros_like(depth))
         x = (u - cx) * z / fx
         y = (v - cy) * z / fy
-        points_cam = torch.stack([x, y, z], dim=-1)#
+        points_cam = torch.stack([x, y, z], dim=-1)
+        print("nan:", torch.isnan(depth).sum())
+        print("inf:", torch.isinf(depth).sum())
+        print("valid:", valid.sum())
+
+        if valid.any():
+            print("min:", depth[valid].min())
+            print("max:", depth[valid].max())
         #endregion
 
         #region カメラ座標からワールド座標への変換
         points_world = (
             R @ points_cam.reshape(-1, 3).T
         ).T + camera_positions[0]
-        points_world = points_world.reshape(H, W, 3)
+        points_world_img = points_world.reshape(H, W, 3)
         u = W // 2
         v = H // 2
         print("camera =", points_cam[v, u])
-        print("world  =", points_world[v, u])
+        print("world  =", points_world_img[v, u])
         #endregion
 
-        camera_quats_ros = convert_camera_frame_orientation_convention(
-            cam_quat_gl.unsqueeze(0),
-            origin="opengl",
-            target="ros",
+        # region 外れ値処理
+        #無効点・異常高さを判定
+        valid_mask = (
+            torch.isfinite(points_world_img).all(dim=-1)
+            &
+            (points_world_img[...,2] > -0.1)
+            &
+            (points_world_img[...,2] < 3.0)
         )
-        cam_quat_ros = camera_quats_ros[0]
-        print(cam_pos)
-        print(cam_quat_gl)
-        print(cam_quat_ros)
-
-        # Generate world pointcloud using Isaac Lab official utility
-        # points_world_img = create_pointcloud_from_depth(
-        #     intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],
-        #     depth=depth,
-        #     keep_invalid=True,
-        #     position=cam_pos,
-        #     orientation=None,
-        #     device=sim.device,
-        # )
-        points_world_img = depth_to_world(
-            depth,
-            camera.data.intrinsic_matrices[camera_index],
-            cam_pos,
-            cam_quat_ros,
-        )
-        print(points_world_img[..., 2].min())
-        print(points_world_img[..., 2].max())
-
-        height, width = depth.shape[0], depth.shape[1]
-        points_world_img = points_world_img.reshape(height, width, 3)
-        
-        valid_mask = torch.isfinite(points_world_img).all(dim=-1)
-        points_world_img_masked = points_world_img.clone()
-        points_world_img_masked[~valid_mask] = 0
-
-        # Filtering pointcloud
-        points_world_flat = points_world_img.reshape(-1, 3)
-        finite_mask = torch.isfinite(points_world_flat).all(dim=1)
-        points_world_flat = points_world_flat[finite_mask]
-
+        # ヒートマップ用点群（[N,3]）
+        points_world = points_world_img[valid_mask]
+        #地図範囲外を捨て
         bounds_mask = (
-            (points_world_flat[:, 0] >= xmin) & (points_world_flat[:, 0] <= xmax) &
-            (points_world_flat[:, 1] >= ymin) & (points_world_flat[:, 1] <= ymax) &
-            (points_world_flat[:, 2] >= -1.0) & (points_world_flat[:, 2] <= 2.0)
+            (points_world[:, 0] >= xmin) & (points_world[:, 0] <= xmax) &
+            (points_world[:, 1] >= ymin) & (points_world[:, 1] <= ymax) &
+            (points_world[:, 2] >= -1.0) & (points_world[:, 2] <= 2.0)
         )
-        points_world = points_world_flat[bounds_mask]
+        points_world = points_world[bounds_mask]
+
+        z = points_world_img[...,2]
+
+        print("z min")
+        idx = torch.argmin(z)
+        print(idx)
+
+        v_bad, u_bad = torch.unravel_index(idx, z.shape)
+
+        print("bad pixel =", u_bad, v_bad)
+        print("bad world =", points_world_img[v_bad,u_bad])
         # endregion
 
         # region Semantic Segmentation
         semantic = camera.data.output["semantic_segmentation"][0].squeeze()
         mask = (semantic == 2)
-        print(points_world_img[mask][:, 2].min())
-        print(points_world_img[mask][:, 2].max())
+        pts = points_world_img[mask]
+        if pts.numel() > 0:
+            print(pts[:,2].min())
+            print(pts[:,2].max())
+        else:
+            print("Cylinder is not visible")
         semantic_np = semantic.cpu().numpy()
         
         semantic_info = camera.data.info[0]["semantic_segmentation"]["idToLabels"]
@@ -598,45 +600,45 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
         points_flat = points_world_img[valid_mask]
         labels_flat = semantic[valid_mask]
+        print("world range")
+        print(points_flat[:,0].min(), points_flat[:,0].max())
+        print(points_flat[:,1].min(), points_flat[:,1].max())
+        print(points_flat[:,2].min(), points_flat[:,2].max())
         #endregion
 
         print(f"------------------------------------------------------------------------------")
         print(f"Frame {count}")
 
         #region 中央画素の座標確認
-        height, width = depth.shape
-        u = width // 2
-        v = height // 2
-        center_depth = depth[v, u]
-        center_world = points_world_img[v, u]
-        print(f"pixel = ({u}, {v})")
-        print(f"depth = {center_depth:.3f}")
-        print(f"world = {center_world}")
+        print(points_world[:,0].min(), points_world[:,0].max())
+        print(points_world[:,1].min(), points_world[:,1].max())
+        print(points_world[:,2].min(), points_world[:,2].max())
+        print(points_world.shape)
         #endregion
 
         #region --- 【追加】v = 235 の行の u 全部の深度と世界座標の高さを表示 ---
         #cylinderの高さを計算して表示
-        cylinder_mask = (labels_flat == 2)
-        if cylinder_mask.any():
-            cylinder_points = points_flat[cylinder_mask]
-            max_cylinder_z = cylinder_points[:, 2].max().item()
-            print(f"Cylinder Max Height (Z): {max_cylinder_z:.4f}")
-        else:
-            print("Cylinder not found in camera view.")
+        # cylinder_mask = (labels_flat == 2)
+        # if cylinder_mask.any():
+        #     cylinder_points = points_flat[cylinder_mask]
+        #     max_cylinder_z = cylinder_points[:, 2].max().item()
+        #     print(f"Cylinder Max Height (Z): {max_cylinder_z:.4f}")
+        # else:
+        #     print("Cylinder not found in camera view.")
 
-        target_v = 230
-        print(f"=== Debug Row v = {target_v} ===")
-        # u方向の全幅（通常は width = 640）
-        width = depth.shape[1]
-        for u in range(width):
-            # シリンダー周辺（310〜330あたり）だけをピンポイントで見やすく出力、あるいは全体をスキャン
-            if 305 <= u <= 335:
-                raw_depth = depth[target_v, u].item()
-                label = semantic[target_v, u].item()
-                world_pt = points_world_img[target_v, u].cpu().numpy()
+        # target_v = 230
+        # print(f"=== Debug Row v = {target_v} ===")
+        # # u方向の全幅（通常は width = 640）
+        # width = depth.shape[1]
+        # for u in range(width):
+        #     # シリンダー周辺（310〜330あたり）だけをピンポイントで見やすく出力、あるいは全体をスキャン
+        #     if 305 <= u <= 335:
+        #         raw_depth = depth[target_v, u].item()
+        #         label = semantic[target_v, u].item()
+        #         world_pt = points_world_img[target_v, u].cpu().numpy()
                 
-                print(f"  u={u:3d} | Label: {label} | Depth: {raw_depth:6.3f} | World XYZ: [{world_pt[0]:6.3f}, {world_pt[1]:6.3f}, {world_pt[2]:6.3f}]")
-        print(f"==================================")
+        #         print(f"  u={u:3d} | Label: {label} | Depth: {raw_depth:6.3f} | World XYZ: [{world_pt[0]:6.3f}, {world_pt[1]:6.3f}, {world_pt[2]:6.3f}]")
+        # print(f"==================================")
         #endregion
 
         # region セマセグ画像一時保存ui表示
@@ -651,7 +653,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             labels_flat.cpu().numpy()
         )
         
-        height_map[semantic_map == 2] = 0.0
+        # height_map[semantic_map == 2] = 0.0
         height_map = gaussian_filter(height_map, sigma=1.0)
         height_map = add_camera_marker(height_map, camera_positions[camera_index].cpu().numpy())
         
