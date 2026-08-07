@@ -60,3 +60,17 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             pos=(0.0, 0.0, 0.25),
         ),
     )
+
+    obstacle = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/Obstacle",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 0.5, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.0, 0.25),
+        ),
+    )

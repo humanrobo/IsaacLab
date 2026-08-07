@@ -53,7 +53,7 @@ class UnicycleEnv(DirectRLEnv):
         # キューブ（RigidObject）をロボットとしてスポーン
         # ※ cfg.robot にキューブのプリミティブ設定またはUSDパスが指定されている想定
         self.robot = RigidObject(self.cfg.robot)
-        
+        self.obstacle = RigidObject(self.cfg.obstacle)
         spawn_ground_plane(
             prim_path="/World/ground",
             cfg=GroundPlaneCfg(
@@ -67,12 +67,12 @@ class UnicycleEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
-
         # シーンに剛体として登録
         self.scene.rigid_objects["robot"] = self.robot
-        
+        self.scene.rigid_objects["obstacle"] = self.obstacle
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
+
 
     def _pre_physics_step(self, actions: torch.Tensor):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
@@ -162,6 +162,11 @@ class UnicycleEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         root_pos_w = self.robot.data.root_pos_w
+        obstacle_pos = self.obstacle.data.root_pos_w[:, :2]
+        obstacle_dist = torch.norm(
+            root_pos_w[:, :2] - obstacle_pos,
+            dim=-1
+        )
         root_lin_vel = self.robot.data.root_lin_vel_w
         
         # 1. 距離報酬：ゴールに近づくほど高報酬
@@ -176,11 +181,19 @@ class UnicycleEnv(DirectRLEnv):
         approach_speed = torch.sum(root_lin_vel[:, :2] * goal_dir_w, dim=-1)
         progress_reward = torch.clamp(approach_speed, min=0.0)
 
+        # 4. 障害物との距離に応じたペナルティ（近づきすぎると負の報酬）
+        collision_penalty = torch.where(
+            obstacle_dist < 1.0,
+            -1.0 * (1.0 - obstacle_dist),
+            torch.zeros_like(obstacle_dist)
+        )
+
         # 報酬の合成
         reward = (
             2.0 * distance_reward
             + 1.0 * progress_reward
             + 1.0 * heading_reward
+            + collision_penalty
         )
 
         if self.common_step_counter % 1000 == 0:
@@ -207,23 +220,49 @@ class UnicycleEnv(DirectRLEnv):
         return died, time_out
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
-            if env_ids is None or len(env_ids) == self.num_envs:
-                env_ids = self.robot._ALL_INDICES
-            self.robot.reset(env_ids)
-            super()._reset_idx(env_ids)
+        if env_ids is None or len(env_ids) == self.num_envs:
+            env_ids = self.robot._ALL_INDICES
+        self.robot.reset(env_ids)
+        super()._reset_idx(env_ids)
 
-            root_state = self.robot.data.default_root_state[env_ids].clone()
-            root_state[:, :3] += self.scene.env_origins[env_ids]
+        root_state = self.robot.data.default_root_state[env_ids].clone()
+        root_state[:, :3] += self.scene.env_origins[env_ids]
 
-            self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
-            self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+        self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
+        self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
 
-            # リセット時にランダムな目標座標（ゴール）を生成
-            init_xy = root_state[:, :2]
-            rand_dist = torch.rand(len(env_ids), device=self.device) * 3.0 + 2.0
-            rand_angle = torch.rand(len(env_ids), device=self.device) * 2.0 * torch.pi - torch.pi
-            
-            self.goal_pos_w[env_ids] = init_xy + torch.stack([
-                rand_dist * torch.cos(rand_angle),
-                rand_dist * torch.sin(rand_angle)
-            ], dim=-1)
+        # リセット時にランダムな目標座標（ゴール）を生成
+        # init_xy = root_state[:, :2]
+        # rand_dist = torch.rand(len(env_ids), device=self.device) * 3.0 + 2.0
+        # rand_angle = torch.rand(len(env_ids), device=self.device) * 2.0 * torch.pi - torch.pi
+        
+        # self.goal_pos_w[env_ids] = init_xy + torch.stack([
+        #     rand_dist * torch.cos(rand_angle),
+        #     rand_dist * torch.sin(rand_angle)
+        # ], dim=-1)
+        self.goal_pos_w[env_ids] = (
+            self.scene.env_origins[env_ids, :2]
+            + torch.tensor([5.0, 0.0], device=self.device)
+        )
+
+        # =====================
+        # 固定obstacle
+        # =====================
+        obstacle_xy = torch.tensor(
+            [2.5, 0.0],
+            device=self.device
+        )
+
+        obstacle_state = self.obstacle.data.default_root_state[env_ids].clone()
+
+        obstacle_state[:, 0:2] = (
+            self.scene.env_origins[env_ids, :2]
+            + obstacle_xy
+        )
+
+        obstacle_state[:, 2] = 0.25
+
+        self.obstacle.write_root_link_pose_to_sim(
+            obstacle_state[:, :7],
+            env_ids
+        )
