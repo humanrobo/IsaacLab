@@ -95,6 +95,10 @@ from isaaclab.utils.math import (
 from PIL import ImageDraw, ImageFont
 from isaaclab.utils.math import matrix_from_quat
 from isaaclab.utils.math import unproject_depth
+import time
+import torch.nn.functional as F
+import torch
+from isaaclab.utils.math import matrix_from_quat
 
 def define_sensor() -> Camera:
     """Defines the camera sensor to add to the scene."""
@@ -154,20 +158,14 @@ def design_scene() -> dict:
     # Xform to hold objects
     sim_utils.create_prim("/World/Objects", "Xform")
     # Random objects
-    for i in range(1):
+    for i in range(8):
         # sample random position
-        position = np.array([
-            0.0,
-            0.0,
-            0.5
-        ])
-        # position = np.random.rand(3) - np.asarray([0.05, 0.05, -1.0])
-        # position *= np.asarray([1.5, 1.5, 0.5])
+        position = np.random.rand(3) - np.asarray([0.05, 0.05, -1.0])
+        position *= np.asarray([1.5, 1.5, 0.5])
         # sample random color
         color = (random.random(), random.random(), random.random())
         # choose random prim type
-        # prim_type = random.choice(["Cube", "Cylinder"])
-        prim_type = "Cylinder"
+        prim_type = random.choice(["Cube", "Cone", "Cylinder"])
         common_properties = {
             "rigid_props": sim_utils.RigidBodyPropertiesCfg(),
             "mass_props": sim_utils.MassPropertiesCfg(mass=5.0),
@@ -177,6 +175,8 @@ def design_scene() -> dict:
         }
         if prim_type == "Cube":
             shape_cfg = sim_utils.CuboidCfg(size=(0.25, 0.25, 0.25), **common_properties)
+        elif prim_type == "Cone":
+            shape_cfg = sim_utils.ConeCfg(radius=0.1, height=0.25, **common_properties)
         elif prim_type == "Cylinder":
             shape_cfg = sim_utils.CylinderCfg(radius=0.25, height=0.25, **common_properties)
         # Rigid Object
@@ -216,43 +216,53 @@ def design_scene() -> dict:
     scene_entities["camera"] = camera
     return scene_entities
 
-def create_height_map(points_world, labels=None):
-    height_map = np.full((H,W), np.nan)
-    semantic_map = np.zeros((H,W), dtype=np.int32)
-    for i, (x,y,z) in enumerate(points_world):
-        if not np.isfinite(x):
-            continue
-        if not np.isfinite(y):
-            continue
-        if not np.isfinite(z):
-            continue
-        if z < 0.0:
-            z = 0.0
-        ix = int((x-xmin)/resolution)
-        iy = int((y-ymin)/resolution)
-        if 0 <= ix < W and 0 <= iy < H:
-            iy_flipped = (H - 1) - iy #ヒートマップ画像は左上が原点で下向きにy軸だから反転させて、x右y上にする
-            # 
-            label = 0
-            if labels is not None:
-                label = labels[i]
-            # if label == 2:
-            #     print(
-            #         "cylinder original z:",
-            #         original_z,
-            #         "after:",
-            #         z
-            #     )
-            if np.isnan(height_map[iy_flipped, ix]) or z > height_map[iy_flipped, ix]:
-                height_map[iy_flipped, ix] = z
-                if labels is not None:
-                    semantic_map[iy_flipped, ix] = label
-            else:
-                if z > height_map[iy_flipped, ix]:
-                    height_map[iy_flipped, ix] = z
-                    semantic_map[iy_flipped, ix] = label
-    height_map[np.isnan(height_map)] = 0.0
-    return height_map, semantic_map
+def create_height_map_torch(points_world, labels=None):
+
+    # points_world: [N,3] (CUDA Tensor)
+
+    # グリッド座標
+    ix = ((points_world[:, 0] - xmin) / resolution).long()
+    iy = ((points_world[:, 1] - ymin) / resolution).long()
+
+    # 範囲内だけ
+    valid = (
+        (ix >= 0) & (ix < W) &
+        (iy >= 0) & (iy < H)
+    )
+
+    ix = ix[valid]
+    iy = iy[valid]
+    z = points_world[:, 2][valid]
+
+    # 高さ0未満は0
+    z = torch.clamp(z, min=0.0)
+
+    # y反転
+    iy = (H - 1) - iy
+
+    # 1次元インデックス
+    linear = iy * W + ix
+
+    # 高さマップ
+    height_map = torch.full(
+        (H * W,),
+        float("-inf"),
+        device=points_world.device,
+    )
+
+    # 最大高さを書き込む
+    height_map.scatter_reduce_(
+        0,
+        linear,
+        z,
+        reduce="amax",
+        include_self=True,
+    )
+
+    height_map = height_map.view(H, W)
+    height_map[height_map == float("-inf")] = 0.0
+
+    return height_map
 
 def heightmap_to_texture(height_map):
     hmin = height_map.min()
@@ -277,38 +287,14 @@ def heightmap_to_texture(height_map):
 
     return buffer.getvalue()
 
-def look_at_rotation(camera_pos, target):
-    forward = target - camera_pos
-    forward = forward / torch.norm(forward)
-    world_up = torch.tensor(
-        [0.0,0.0,1.0],
-        device=camera_pos.device
-    )
-    if torch.abs(torch.dot(forward, world_up)) > 0.99:
-        world_up = torch.tensor([0.0, 1.0, 0.0], device=camera_pos.device)
-    right = torch.linalg.cross(
-        forward,
-        world_up
-    )
-    right = right / torch.norm(right)
-    # up = torch.linalg.cross(
-    #     right,
-    #     forward
-    # )
-    up = torch.linalg.cross(right, forward)
-    R = torch.stack(
-        [
-            right,
-            -up,
-            forward,
-        ],
-        dim=1
-    )
+def create_gaussian_kernel(kernel_size=5, sigma=1.0, device="cuda"):
+    ax = torch.arange(kernel_size, device=device) - kernel_size // 2
+    xx, yy = torch.meshgrid(ax, ax, indexing="ij")
 
-    return R
+    kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+    kernel /= kernel.sum()
 
-import torch
-from isaaclab.utils.math import matrix_from_quat
+    return kernel.view(1, 1, kernel_size, kernel_size)
 
 def depth_to_world(
     depth: torch.Tensor,
@@ -414,6 +400,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         colorize_semantic_segmentation=camera.cfg.colorize_semantic_segmentation,
     )
 
+    gaussian_kernel = create_gaussian_kernel(   
+        kernel_size=5,
+        sigma=1.0,
+        device=sim.device,
+    )
+
     camera_positions = torch.tensor([[2.5, 2.5, 2.5]], device=sim.device)
     camera_targets = torch.tensor([[0.0, 0.0, 0.0]], device=sim.device)
     camera.set_world_poses_from_view(camera_positions, camera_targets)
@@ -459,30 +451,27 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         camera.update(dt=sim.get_physics_dt())
         #endregion
 
-        if count % 50 != 0:
-            continue
+        # if count % 50 != 0:
+        #     continue
 
-        #region 深度画像Get camera data and generate pointcloud
+        t0 = time.perf_counter()
+
+        #Get camera data and generate pointcloud
+        #region 座標変換
         depth = camera.data.output["distance_to_image_plane"][camera_index]
         depth = depth.squeeze(-1)
 
+        t1 = time.perf_counter()
+
         # Get camera poses & convert convention
         camera_positions, camera_quats_gl = camera._view.get_world_poses()
-        cam_pos = camera_positions[camera_index]
-        cam_quat_gl = camera_quats_gl[camera_index]
-        #回転行列計算
-        # R = look_at_rotation(
-        #     camera_positions[0],
-        #     camera_targets[0],
-        # )
         camera_quats_ros = convert_camera_frame_orientation_convention(
             camera_quats_gl,
             origin="opengl",
             target="ros",
         )
         R = matrix_from_quat(camera_quats_ros[camera_index])
-        print(R.T @ R)
-        print(torch.det(R))
+        #endregion
 
         # region 各画素のカメラ座標
         fx = camera.data.intrinsic_matrices[camera_index][0, 0]
@@ -507,14 +496,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         x = (u - cx) * z / fx
         y = (v - cy) * z / fy
         points_cam = torch.stack([x, y, z], dim=-1)
-        print("nan:", torch.isnan(depth).sum())
-        print("inf:", torch.isinf(depth).sum())
-        print("valid:", valid.sum())
-
-        if valid.any():
-            print("min:", depth[valid].min())
-            print("max:", depth[valid].max())
         #endregion
+
+        t2 = time.perf_counter()
 
         #region カメラ座標からワールド座標への変換
         points_world = (
@@ -526,6 +510,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         print("camera =", points_cam[v, u])
         print("world  =", points_world_img[v, u])
         #endregion
+
+        t3 = time.perf_counter()
 
         # region 外れ値処理
         #無効点・異常高さを判定
@@ -609,13 +595,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         print(f"------------------------------------------------------------------------------")
         print(f"Frame {count}")
 
-        #region 中央画素の座標確認
-        print(points_world[:,0].min(), points_world[:,0].max())
-        print(points_world[:,1].min(), points_world[:,1].max())
-        print(points_world[:,2].min(), points_world[:,2].max())
-        print(points_world.shape)
-        #endregion
-
         #region --- 【追加】v = 235 の行の u 全部の深度と世界座標の高さを表示 ---
         #cylinderの高さを計算して表示
         # cylinder_mask = (labels_flat == 2)
@@ -641,31 +620,44 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # print(f"==================================")
         #endregion
 
-        # region セマセグ画像一時保存ui表示
+        t_h0 = time.perf_counter()#処理時間測定
+        # region HeightMap generation & update
+        height_map = create_height_map_torch(
+            points_flat
+        )
+        t_h1 = time.perf_counter()#処理時間測定
+        height_map = (
+            F.conv2d(
+                height_map.unsqueeze(0).unsqueeze(0),   # [H,W]→[1,1,H,W]
+                gaussian_kernel,
+                padding=2,
+            )
+            .squeeze(0)
+            .squeeze(0)
+        )
+        t_h2 = time.perf_counter()#処理時間測定
+        height_map = height_map.cpu().numpy()   
+        height_map = add_camera_marker(height_map, camera_positions[camera_index].cpu().numpy())
+        rgb = camera.data.output["rgb"][0].cpu().numpy()
+        Image.fromarray(rgb).save("/tmp/latest_rgb.png")
+        texture = heightmap_to_texture(height_map)
+        t_h3 = time.perf_counter()#処理時間測定
+        # region ヒートマップ・セマセグ画像一時保存ui表示
         semantic_path = f"/tmp/semantic_{count}.png"
         semantic_pil.save(semantic_path)
         semantic_widget.source_url = semantic_path
-        # endregion
-
-        # region HeightMap generation & update
-        height_map, semantic_map = create_height_map(
-            points_flat.cpu().numpy(),
-            labels_flat.cpu().numpy()
-        )
-        
-        # height_map[semantic_map == 2] = 0.0
-        height_map = gaussian_filter(height_map, sigma=1.0)
-        height_map = add_camera_marker(height_map, camera_positions[camera_index].cpu().numpy())
-        
-        rgb = camera.data.output["rgb"][0].cpu().numpy()
-        Image.fromarray(rgb).save("/tmp/latest_rgb.png")
-        
-        texture = heightmap_to_texture(height_map)
         texture_path = f"/tmp/heightmap_{count}.png"
         with open(texture_path, "wb") as f:
             f.write(texture)
         image_widget.source_url = texture_path
+        omni.kit.app.get_app().update()
         # endregion
+        t_h4 = time.perf_counter()#処理時間測定
+        print("create_height_map :", (t_h1-t_h0)*1000)
+        print("gaussian_filter   :", (t_h2-t_h1)*1000)
+        print("texture           :", (t_h3-t_h2)*1000)
+        print("save png          :", (t_h4-t_h3)*1000)
+        #endregion
 
 def main():
     """Main function."""
