@@ -420,6 +420,13 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
     count = 0
     while simulation_app.is_running():
+
+        # ============================================================
+        # while 1周全体 START
+        # ============================================================
+        torch.cuda.synchronize()
+        t_total0 = time.perf_counter()
+        
         sim.step()
         sim_dt = sim.get_physics_dt()
         count += 1
@@ -441,6 +448,10 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             vz -= speed
         # endregion
 
+        # ============================================================
+        # ① カメラ位置更新
+        # ============================================================
+        t0 = time.perf_counter()
         # region カメラ座標取得
         camera_positions, camera_quats = camera._view.get_world_poses()
         camera_positions[0] += torch.tensor([vx, vy, vz], device=sim.device) * sim_dt
@@ -450,19 +461,25 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         )
         camera.update(dt=sim.get_physics_dt())
         #endregion
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
 
         # if count % 50 != 0:
         #     continue
 
-        t0 = time.perf_counter()
-
         #Get camera data and generate pointcloud
         #region 座標変換
+
+        # ============================================================
+        # ② Depth取得
+        # ============================================================
         depth = camera.data.output["distance_to_image_plane"][camera_index]
         depth = depth.squeeze(-1)
+        t2 = time.perf_counter()
 
-        t1 = time.perf_counter()
-
+        # ============================================================
+        # ③ Camera pose / quaternion変換
+        # ============================================================
         # Get camera poses & convert convention
         camera_positions, camera_quats_gl = camera._view.get_world_poses()
         camera_quats_ros = convert_camera_frame_orientation_convention(
@@ -472,7 +489,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         )
         R = matrix_from_quat(camera_quats_ros[camera_index])
         #endregion
+        torch.cuda.synchronize()
+        t3 = time.perf_counter()
 
+        # ============================================================
+        # ④ 各画素 → カメラ座標
+        # ============================================================
         # region 各画素のカメラ座標
         fx = camera.data.intrinsic_matrices[camera_index][0, 0]
         fy = camera.data.intrinsic_matrices[camera_index][1, 1]
@@ -497,9 +519,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         y = (v - cy) * z / fy
         points_cam = torch.stack([x, y, z], dim=-1)
         #endregion
+        torch.cuda.synchronize()
+        t4 = time.perf_counter()
 
-        t2 = time.perf_counter()
-
+        # ============================================================
+        # ⑤ Camera座標 → World座標
+        # ============================================================
         #region カメラ座標からワールド座標への変換
         points_world = (
             R @ points_cam.reshape(-1, 3).T
@@ -510,9 +535,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         print("camera =", points_cam[v, u])
         print("world  =", points_world_img[v, u])
         #endregion
+        torch.cuda.synchronize()
+        t5 = time.perf_counter()
 
-        t3 = time.perf_counter()
-
+        # ============================================================
+        # ⑥ 外れ値 / valid mask
+        # ============================================================
         # region 外れ値処理
         #無効点・異常高さを判定
         valid_mask = (
@@ -543,7 +571,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         print("bad pixel =", u_bad, v_bad)
         print("bad world =", points_world_img[v_bad,u_bad])
         # endregion
+        torch.cuda.synchronize()
+        t6 = time.perf_counter()
 
+        # ============================================================
+        # ⑦ Semantic segmentation取得
+        # ============================================================
         # region Semantic Segmentation
         semantic = camera.data.output["semantic_segmentation"][0].squeeze()
         mask = (semantic == 2)
@@ -553,8 +586,23 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             print(pts[:,2].max())
         else:
             print("Cylinder is not visible")
+        #endregion  
+        torch.cuda.synchronize()
+        t7 = time.perf_counter()
+
+        # ============================================================
+        # ⑧ Semantic → CPU / NumPy
+        # ============================================================
+        #region
         semantic_np = semantic.cpu().numpy()
-        
+        #endregion
+        torch.cuda.synchronize()
+        t8 = time.perf_counter()
+
+        # ============================================================
+        # ⑨ Semanticカラー画像生成
+        # ============================================================
+        #region
         semantic_info = camera.data.info[0]["semantic_segmentation"]["idToLabels"]
         colors = {
             0: [0, 0, 0],        # BACKGROUND
@@ -591,6 +639,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         print(points_flat[:,1].min(), points_flat[:,1].max())
         print(points_flat[:,2].min(), points_flat[:,2].max())
         #endregion
+        torch.cuda.synchronize()
+        t9 = time.perf_counter()
 
         print(f"------------------------------------------------------------------------------")
         print(f"Frame {count}")
@@ -620,12 +670,22 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # print(f"==================================")
         #endregion
 
-        t_h0 = time.perf_counter()#処理時間測定
+        # ============================================================
+        # ⑩ HeightMap生成
+        # ============================================================
         # region HeightMap generation & update
         height_map = create_height_map_torch(
             points_flat
         )
-        t_h1 = time.perf_counter()#処理時間測定
+        #endregion
+        torch.cuda.synchronize()
+        t10 = time.perf_counter()
+        
+
+        # ============================================================
+        # ⑪ Gaussian filter
+        # ============================================================
+        # region 
         height_map = (
             F.conv2d(
                 height_map.unsqueeze(0).unsqueeze(0),   # [H,W]→[1,1,H,W]
@@ -635,13 +695,46 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             .squeeze(0)
             .squeeze(0)
         )
-        t_h2 = time.perf_counter()#処理時間測定
-        height_map = height_map.cpu().numpy()   
+        #endregion
+        torch.cuda.synchronize()
+        t11 = time.perf_counter()
+
+        # ============================================================
+        # ⑫ HeightMap → CPU
+        # ============================================================
+        #region
+        height_map = height_map.cpu().numpy()  
+        #endregion
+        torch.cuda.synchronize()
+        t12 = time.perf_counter()
+
+        # ============================================================
+        # ⑬ Camera marker
+        # ============================================================
         height_map = add_camera_marker(height_map, camera_positions[camera_index].cpu().numpy())
+        t13 = time.perf_counter()
+
+        # ============================================================
+        # ⑭ RGB → CPU
+        # ============================================================
         rgb = camera.data.output["rgb"][0].cpu().numpy()
+        t14 = time.perf_counter()
+
+        # ============================================================
+        # ⑮ RGB PNG保存
+        # ============================================================
         Image.fromarray(rgb).save("/tmp/latest_rgb.png")
+        t15 = time.perf_counter()
+
+        # ============================================================
+        # ⑯ HeightMap → texture
+        # ============================================================
         texture = heightmap_to_texture(height_map)
-        t_h3 = time.perf_counter()#処理時間測定
+        t16 = time.perf_counter()
+
+        # ============================================================
+        # ⑰ Semantic PNG保存 + UI
+        # ============================================================
         # region ヒートマップ・セマセグ画像一時保存ui表示
         semantic_path = f"/tmp/semantic_{count}.png"
         semantic_pil.save(semantic_path)
@@ -651,12 +744,37 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             f.write(texture)
         image_widget.source_url = texture_path
         omni.kit.app.get_app().update()
+        t17 = time.perf_counter()
         # endregion
-        t_h4 = time.perf_counter()#処理時間測定
-        print("create_height_map :", (t_h1-t_h0)*1000)
-        print("gaussian_filter   :", (t_h2-t_h1)*1000)
-        print("texture           :", (t_h3-t_h2)*1000)
-        print("save png          :", (t_h4-t_h3)*1000)
+        
+        # ============================================================
+        # while 1周全体 END
+        # ============================================================
+        torch.cuda.synchronize()
+        t_total1 = time.perf_counter()
+
+        print(
+            f"Frame {count} | "
+            f"camera update: {(t1-t0)*1000:.3f} ms | "
+            f"depth get: {(t2-t1)*1000:.3f} ms | "
+            f"pose/quat: {(t3-t2)*1000:.3f} ms | "
+            f"pixel->camera: {(t4-t3)*1000:.3f} ms | "
+            f"camera->world: {(t5-t4)*1000:.3f} ms | "
+            f"valid/bounds: {(t6-t5)*1000:.3f} ms | "
+            f"semantic get: {(t7-t6)*1000:.3f} ms | "
+            f"semantic->CPU: {(t8-t7)*1000:.3f} ms | "
+            f"semantic image: {(t9-t8)*1000:.3f} ms | "
+            f"heightmap: {(t10-t9)*1000:.3f} ms | "
+            f"gaussian: {(t11-t10)*1000:.3f} ms | "
+            f"heightmap->CPU: {(t12-t11)*1000:.3f} ms | "
+            f"camera marker: {(t13-t12)*1000:.3f} ms | "
+            f"RGB->CPU: {(t14-t13)*1000:.3f} ms | "
+            f"RGB PNG: {(t15-t14)*1000:.3f} ms | "
+            f"texture: {(t16-t15)*1000:.3f} ms | "
+            f"PNG/UI: {(t17-t16)*1000:.3f} ms | "
+            f"TOTAL: {(t_total1-t_total0)*1000:.3f} ms | "
+            f"FPS: {1000.0/(t_total1-t_total0):.2f}"
+        )
         #endregion
 
 def main():

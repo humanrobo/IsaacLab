@@ -11,6 +11,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import PhysxCfg, SimulationCfg
 from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
+from isaaclab.sensors import CameraCfg
 
 @configclass
 class UnicycleEnvCfg(DirectRLEnvCfg):
@@ -72,5 +73,23 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(2.5, 0.0, 0.25),
+        ),
+    )
+
+    camera = CameraCfg(
+        prim_path="/World/envs/env_.*/Robot/Camera",
+        update_period=0.1,
+        height=240,
+        width=320,
+        data_types=["rgb", "distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.5, 0.0, 1.0),
+            rot=(0.5, 0.5, 0.5, 0.5),
+            convention="ros",
         ),
     )

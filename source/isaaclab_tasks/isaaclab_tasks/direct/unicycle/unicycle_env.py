@@ -19,6 +19,8 @@ from .unicycle_env_cfg import UnicycleEnvCfg
 from tqdm import tqdm
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.markers.config import FRAME_MARKER_CFG, CUBOID_MARKER_CFG, SPHERE_MARKER_CFG # 必要に応じて
+from isaaclab.sensors import Camera
+from PIL import Image
 
 class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
@@ -46,13 +48,13 @@ class UnicycleEnv(DirectRLEnv):
         marker_cfg.markers["sphere"].scale = (0.4, 0.4, 0.4)
         # 色を赤色などに変更したい場合（オプション）
         # marker_cfg.markers["sphere"].visual_material.diffuse_color = (1.0, 0.0, 0.0)
-
         self.goal_marker = VisualizationMarkers(marker_cfg)
 
     def _setup_scene(self):
         # キューブ（RigidObject）をロボットとしてスポーン
         # ※ cfg.robot にキューブのプリミティブ設定またはUSDパスが指定されている想定
         self.robot = RigidObject(self.cfg.robot)
+        self.camera = Camera(self.cfg.camera)
         self.obstacle = RigidObject(self.cfg.obstacle)
         spawn_ground_plane(
             prim_path="/World/ground",
@@ -69,10 +71,10 @@ class UnicycleEnv(DirectRLEnv):
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         # シーンに剛体として登録
         self.scene.rigid_objects["robot"] = self.robot
+        self.scene.sensors["camera"] = self.camera
         self.scene.rigid_objects["obstacle"] = self.obstacle
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
-
 
     def _pre_physics_step(self, actions: torch.Tensor):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
@@ -100,6 +102,14 @@ class UnicycleEnv(DirectRLEnv):
         )
 
     def _get_observations(self) -> dict:
+        rgb = self.camera.data.output["rgb"][0].cpu().numpy()
+        print(rgb.shape)
+        print(rgb.dtype)
+        print(rgb.min(), rgb.max())
+        print(rgb.mean(axis=(0,1)))
+        depth = self.camera.data.output["distance_to_image_plane"]
+        Image.fromarray(rgb).save("/tmp/unicycle_camera.png")
+
         root_pos_w = self.robot.data.root_pos_w
         root_rot_w = self.robot.data.root_quat_w
         root_lin_vel_w = self.robot.data.root_lin_vel_w
@@ -114,7 +124,7 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # ゴールマーカーの描画位置を更新
         # ==========================================
-        # 2次元のゴール座標 (x, y) に、地面すれすれの高さ (z = 0.2 など) を付与して3次元座標にする
+        # region 2次元のゴール座標 (x, y) に、地面すれすれの高さ (z = 0.2 など) を付与して3次元座標にする
         marker_pos_w = torch.cat([
             self.goal_pos_w, 
             torch.zeros(self.num_envs, 1, device=self.device) + 0.2
@@ -133,6 +143,7 @@ class UnicycleEnv(DirectRLEnv):
         
         heading_sin = torch.sin(heading_error)
         heading_cos = torch.cos(heading_error)
+        #endregion
 
         # ゴールまでのローカル相対座標（キューブ基準のX, Y）
         q_yaw_inv = quat_conjugate(yaw_quat(root_rot_w))
