@@ -424,6 +424,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # ============================================================
         # while 1周全体 START
         # ============================================================
+        print(f"------------------------------------------------------------------------------")
+        print(f"Frame {count}")
         torch.cuda.synchronize()
         t_total0 = time.perf_counter()
         
@@ -464,8 +466,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         torch.cuda.synchronize()
         t1 = time.perf_counter()
 
-        # if count % 50 != 0:
-        #     continue
+        if count % 10 != 0:
+            continue
 
         #Get camera data and generate pointcloud
         #region 座標変換
@@ -488,7 +490,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             target="ros",
         )
         R = matrix_from_quat(camera_quats_ros[camera_index])
-        #endregion
         torch.cuda.synchronize()
         t3 = time.perf_counter()
 
@@ -642,34 +643,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         torch.cuda.synchronize()
         t9 = time.perf_counter()
 
-        print(f"------------------------------------------------------------------------------")
-        print(f"Frame {count}")
-
-        #region --- 【追加】v = 235 の行の u 全部の深度と世界座標の高さを表示 ---
-        #cylinderの高さを計算して表示
-        # cylinder_mask = (labels_flat == 2)
-        # if cylinder_mask.any():
-        #     cylinder_points = points_flat[cylinder_mask]
-        #     max_cylinder_z = cylinder_points[:, 2].max().item()
-        #     print(f"Cylinder Max Height (Z): {max_cylinder_z:.4f}")
-        # else:
-        #     print("Cylinder not found in camera view.")
-
-        # target_v = 230
-        # print(f"=== Debug Row v = {target_v} ===")
-        # # u方向の全幅（通常は width = 640）
-        # width = depth.shape[1]
-        # for u in range(width):
-        #     # シリンダー周辺（310〜330あたり）だけをピンポイントで見やすく出力、あるいは全体をスキャン
-        #     if 305 <= u <= 335:
-        #         raw_depth = depth[target_v, u].item()
-        #         label = semantic[target_v, u].item()
-        #         world_pt = points_world_img[target_v, u].cpu().numpy()
-                
-        #         print(f"  u={u:3d} | Label: {label} | Depth: {raw_depth:6.3f} | World XYZ: [{world_pt[0]:6.3f}, {world_pt[1]:6.3f}, {world_pt[2]:6.3f}]")
-        # print(f"==================================")
-        #endregion
-
         # ============================================================
         # ⑩ HeightMap生成
         # ============================================================
@@ -681,7 +654,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         torch.cuda.synchronize()
         t10 = time.perf_counter()
         
-
         # ============================================================
         # ⑪ Gaussian filter
         # ============================================================
@@ -702,9 +674,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # ============================================================
         # ⑫ HeightMap → CPU
         # ============================================================
-        #region
         height_map = height_map.cpu().numpy()  
-        #endregion
         torch.cuda.synchronize()
         t12 = time.perf_counter()
 

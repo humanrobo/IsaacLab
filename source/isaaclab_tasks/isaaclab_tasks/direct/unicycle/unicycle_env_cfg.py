@@ -88,8 +88,8 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
-            pos=(0.5, 0.0, 1.0),
-            rot=(0.5, 0.5, 0.5, 0.5),
+            pos=(0.5, 0.0, 0),
+            rot=(-0.5, 0.5, -0.5, 0.5),
             convention="ros",
         ),
     )
