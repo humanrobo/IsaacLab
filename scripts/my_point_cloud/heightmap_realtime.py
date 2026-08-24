@@ -135,7 +135,7 @@ def define_sensor() -> Camera:
 
     return camera
 
-resolution = 0.03
+resolution = 0.125
 xmin, xmax = -4.0, 4.0
 ymin, ymax = -4.0, 4.0
 

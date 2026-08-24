@@ -102,13 +102,13 @@ class UnicycleEnv(DirectRLEnv):
         )
 
     def _get_observations(self) -> dict:
-        rgb = self.camera.data.output["rgb"][0].cpu().numpy()
-        print(rgb.shape)
-        print(rgb.dtype)
-        print(rgb.min(), rgb.max())
-        print(rgb.mean(axis=(0,1)))
-        depth = self.camera.data.output["distance_to_image_plane"]
-        Image.fromarray(rgb).save("/tmp/unicycle_camera.png")
+        # rgb = self.camera.data.output["rgb"][0].cpu().numpy()
+        # print(rgb.shape)
+        # print(rgb.dtype)
+        # print(rgb.min(), rgb.max())
+        # print(rgb.mean(axis=(0,1)))
+        # depth = self.camera.data.output["distance_to_image_plane"]
+        # Image.fromarray(rgb).save("/tmp/unicycle_camera.png")
 
         root_pos_w = self.robot.data.root_pos_w
         root_rot_w = self.robot.data.root_quat_w

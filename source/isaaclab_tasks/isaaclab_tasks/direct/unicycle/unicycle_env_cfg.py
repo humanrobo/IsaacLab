@@ -78,9 +78,9 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
 
     camera = CameraCfg(
         prim_path="/World/envs/env_.*/Robot/Camera",
-        update_period=0.1,
-        height=240,
-        width=320,
+        update_period=1.0,
+        height=32,
+        width=32,
         data_types=["rgb", "distance_to_image_plane"],
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=24.0,
