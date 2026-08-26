@@ -18,7 +18,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     """Unicycle environment config (cube base model)."""
 
     # env
-    episode_length_s = 5.0
+    episode_length_s = 15.0
     decimation = 2
 
     # spaces (ユニサイクルモデルの入力・出力に合わせて変更)

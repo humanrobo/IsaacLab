@@ -54,7 +54,7 @@ class UnicycleEnv(DirectRLEnv):
         # キューブ（RigidObject）をロボットとしてスポーン
         # ※ cfg.robot にキューブのプリミティブ設定またはUSDパスが指定されている想定
         self.robot = RigidObject(self.cfg.robot)
-        self.camera = Camera(self.cfg.camera)
+        # self.camera = Camera(self.cfg.camera)
         self.obstacle = RigidObject(self.cfg.obstacle)
         spawn_ground_plane(
             prim_path="/World/ground",
@@ -71,7 +71,7 @@ class UnicycleEnv(DirectRLEnv):
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         # シーンに剛体として登録
         self.scene.rigid_objects["robot"] = self.robot
-        self.scene.sensors["camera"] = self.camera
+        # self.scene.sensors["camera"] = self.camera
         self.scene.rigid_objects["obstacle"] = self.obstacle
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
@@ -201,9 +201,9 @@ class UnicycleEnv(DirectRLEnv):
 
         # 報酬の合成
         reward = (
-            2.0 * distance_reward
+            1.0 * distance_reward
             + 1.0 * progress_reward
-            + 1.0 * heading_reward
+            # + 0.5 * heading_reward
             + collision_penalty
         )
 
@@ -259,8 +259,9 @@ class UnicycleEnv(DirectRLEnv):
         # =====================
         # 固定obstacle
         # =====================
+        y = torch.rand(1, device=self.device) * 2.0 - 1.0
         obstacle_xy = torch.tensor(
-            [2.5, 0.0],
+            [2.5, y.item()],
             device=self.device
         )
 
