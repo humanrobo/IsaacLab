@@ -21,6 +21,7 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.markers.config import FRAME_MARKER_CFG, CUBOID_MARKER_CFG, SPHERE_MARKER_CFG # 必要に応じて
 from isaaclab.sensors import Camera
 from PIL import Image
+from .heightmap_generator import HeightMapGenerator
 
 class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
@@ -49,6 +50,22 @@ class UnicycleEnv(DirectRLEnv):
         # 色を赤色などに変更したい場合（オプション）
         # marker_cfg.markers["sphere"].visual_material.diffuse_color = (1.0, 0.0, 0.0)
         self.goal_marker = VisualizationMarkers(marker_cfg)
+        # ==========================================
+        # 障害物のサイズ
+        # ==========================================
+        self.obstacle_size = torch.tensor(
+            self.cfg.obstacle.spawn.size,
+            device=self.device,
+            dtype=torch.float32,
+        ).unsqueeze(0).repeat(self.num_envs, 1)
+        # ==========================================
+        # ヒートマップ作成
+        # ==========================================
+        self.heightmap_generator = HeightMapGenerator(
+            resolution=0.1,
+            map_size=8.0,
+            device=self.device,
+        )
 
     def _setup_scene(self):
         # キューブ（RigidObject）をロボットとしてスポーン
@@ -156,6 +173,17 @@ class UnicycleEnv(DirectRLEnv):
         local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
         local_ang_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_ang_vel_w)
 
+        height_map = self.heightmap_generator.generate(
+            robot_pos=root_pos_w,
+            obstacle_positions=self.obstacle.data.root_pos_w,
+            obstacle_sizes=self.obstacle_size,
+        )
+        # print("height_map shape:", height_map.shape)
+        # print("height_map min:", height_map.min().item())
+        # print("height_map max:", height_map.max().item())
+        # height_map = height_map.flatten(start_dim=1)
+        height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
+
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
         policy_obs = torch.cat(
             (
@@ -169,7 +197,7 @@ class UnicycleEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": policy_obs}
+        return {"policy": {"policy_obs": policy_obs, "heightmap": height_map}}
 
     def _get_rewards(self) -> torch.Tensor:
         root_pos_w = self.robot.data.root_pos_w
@@ -259,9 +287,9 @@ class UnicycleEnv(DirectRLEnv):
         # =====================
         # 固定obstacle
         # =====================
-        y = torch.rand(1, device=self.device) * 2.0 - 1.0
+        # y = torch.rand(1, device=self.device) * 2.0 - 1.0
         obstacle_xy = torch.tensor(
-            [2.5, y.item()],
+            [2.5, -1.0],
             device=self.device
         )
 

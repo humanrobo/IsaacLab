@@ -23,7 +23,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
 
     # spaces (ユニサイクルモデルの入力・出力に合わせて変更)
     # 例: 観測空間 = local_lin_vel(3) + local_ang_vel(3) + height(1) + heading_sin(1) + heading_cos(1) + goal_vec_local(2) = 11次元
-    observation_space = 11
+    observation_space = {"policy_obs": 11, "heightmap": [1, 80, 80]}  # map_size=8.0, resolution=0.1 → 80x80
     action_space = 2
     state_space = 0
 

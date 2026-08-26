@@ -19,9 +19,8 @@ from .unicycle_env_cfg import UnicycleEnvCfg
 
 gym.register(
     id="Isaac-Unicycle-v0",
-
     entry_point="isaaclab_tasks.direct.unicycle:UnicycleEnv",
-
+    disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point":UnicycleEnvCfg,
         "skrl_cfg_entry_point":

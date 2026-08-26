@@ -9,7 +9,7 @@ seed: 42
 # https://skrl.readthedocs.io/en/latest/api/utils/model_instantiators.html
 models:
   separate: True
-  policy:  # see gaussian_model parameters
+  policy:
     class: GaussianMixin
     clip_actions: False
     clip_log_std: True
@@ -18,17 +18,33 @@ models:
     initial_log_std: -1.0
     fixed_log_std: False
     network:
+      - name: heightmap_features
+        input: OBSERVATIONS["heightmap"]
+        layers:
+          - conv2d: {out_channels: 16, kernel_size: 5, stride: 2, padding: 0}
+          - conv2d: {out_channels: 32, kernel_size: 3, stride: 2, padding: 0}
+          - conv2d: {out_channels: 32, kernel_size: 3, stride: 2, padding: 0}
+          - flatten
+        activations: relu
       - name: net
-        input: OBSERVATIONS
+        input: concatenate([heightmap_features, OBSERVATIONS["policy_obs"]])
         layers: [256, 128]
         activations: elu
     output: ACTIONS
-  value:  # see deterministic_model parameters
+  value:
     class: DeterministicMixin
     clip_actions: False
     network:
+      - name: heightmap_features
+        input: OBSERVATIONS["heightmap"]
+        layers:
+          - conv2d: {out_channels: 16, kernel_size: 5, stride: 2, padding: 0}
+          - conv2d: {out_channels: 32, kernel_size: 3, stride: 2, padding: 0}
+          - conv2d: {out_channels: 32, kernel_size: 3, stride: 2, padding: 0}
+          - flatten
+        activations: relu
       - name: net
-        input: OBSERVATIONS
+        input: concatenate([heightmap_features, OBSERVATIONS["policy_obs"]])
         layers: [256, 128]
         activations: elu
     output: ONE
@@ -73,5 +89,5 @@ agent:
 # https://skrl.readthedocs.io/en/latest/api/trainers/sequential.html
 trainer:
   class: SequentialTrainer
-  timesteps: 50000
+  timesteps: 10000
   environment_info: log

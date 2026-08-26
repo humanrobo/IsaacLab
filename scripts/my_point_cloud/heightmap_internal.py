@@ -208,7 +208,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
     # --------------------------------------------------------
     # HeightMap parameters
     # --------------------------------------------------------
-    resolution = 0.025
+    resolution = 0.1
     map_size = 8.0
     map_W = int(map_size / resolution)
     map_H = int(map_size / resolution)
