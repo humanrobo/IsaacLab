@@ -209,8 +209,15 @@ def design_scene() -> dict:
     scene_entities["camera"] = camera
     return scene_entities
 
-def create_height_map_torch(points_world, xmin, ymin, resolution, map_W, map_H):
-    # グリッド座標の計算に、そのフレームの xmin, ymin を使う
+def create_height_map_torch(
+    points_world,
+    xmin,
+    ymin,
+    resolution,
+    map_W,
+    map_H,
+):
+    # グリッド座標
     ix = ((points_world[:, 0] - xmin) / resolution).long()
     iy = ((points_world[:, 1] - ymin) / resolution).long()
 
@@ -224,15 +231,17 @@ def create_height_map_torch(points_world, xmin, ymin, resolution, map_W, map_H):
     z = points_world[:, 2][valid]
 
     z = torch.clamp(z, min=0.0)
+
+    # y方向反転
     iy = (map_H - 1) - iy
+
     linear = iy * map_W + ix
-    print(f"map_W: {map_W}, map_H: {map_H}, Total: {map_W * map_H}")
+
     height_map = torch.full(
         (map_H * map_W,),
         float("-inf"),
         device=points_world.device,
     )
-    print(f"height_map {height_map.numel()}")
 
     height_map.scatter_reduce_(
         0,
@@ -601,11 +610,19 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # ============================================================
         #region
         semantic_info = camera.data.info[0]["semantic_segmentation"]["idToLabels"]
+        # semantic labelからIDを取得
+        cylinder_id = next(
+            int(k)
+            for k, v in semantic_info.items()
+            if v.get("class") == "cylinder"
+        )
+        print("cylinder_id =", cylinder_id)
         colors = {
             0: [0, 0, 0],        # BACKGROUND
             1: [80, 80, 80],     # UNLABELLED
-            2: [255, 0, 0],      # cylinder
-            3: [0, 255, 0],      # cube
+            2: [0, 255, 0],      # cube
+            3: [255, 255, 0],    # cone
+            4: [255, 0, 0],      # cylinder
         }
         #セマセグカラー画像生成
         semantic_rgb = np.zeros((*semantic_np.shape, 3), dtype=np.uint8)
@@ -631,10 +648,20 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
 
         points_flat = points_world_img[valid_mask]
         labels_flat = semantic[valid_mask]
+        #指定id物体をヒートマップから削除
+        # cylinderだけ除外
+        keep_mask = labels_flat != cylinder_id
+        points_height = points_flat[keep_mask]
         print("world range")
         print(points_flat[:,0].min(), points_flat[:,0].max())
         print(points_flat[:,1].min(), points_flat[:,1].max())
         print(points_flat[:,2].min(), points_flat[:,2].max())
+        print("unique semantic:", np.unique(semantic_np))
+        for label_id in np.unique(semantic_np):
+            print(
+                "ID:", label_id,
+                "name:", semantic_info.get(str(int(label_id)))
+            )
         #endregion
         torch.cuda.synchronize()
         t9 = time.perf_counter()
@@ -643,7 +670,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # ⑩ HeightMap生成
         # ============================================================
         # region HeightMap generation & update
-        height_map = create_height_map_torch(points_flat, xmin, ymin, resolution, map_W, map_H)
+        height_map = create_height_map_torch(points_height, xmin, ymin, resolution, map_W, map_H)
         #endregion
         torch.cuda.synchronize()
         t10 = time.perf_counter()
