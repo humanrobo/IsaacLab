@@ -135,13 +135,6 @@ def define_sensor() -> Camera:
 
     return camera
 
-resolution = 0.125
-xmin, xmax = -4.0, 4.0
-ymin, ymax = -4.0, 4.0
-
-W = int((xmax-xmin)/resolution)
-H = int((ymax-ymin)/resolution)
-
 def design_scene() -> dict:
     """Design the scene."""
     # Populate scene
@@ -216,41 +209,31 @@ def design_scene() -> dict:
     scene_entities["camera"] = camera
     return scene_entities
 
-def create_height_map_torch(points_world, labels=None):
-
-    # points_world: [N,3] (CUDA Tensor)
-
-    # グリッド座標
+def create_height_map_torch(points_world, xmin, ymin, resolution, map_W, map_H):
+    # グリッド座標の計算に、そのフレームの xmin, ymin を使う
     ix = ((points_world[:, 0] - xmin) / resolution).long()
     iy = ((points_world[:, 1] - ymin) / resolution).long()
 
-    # 範囲内だけ
     valid = (
-        (ix >= 0) & (ix < W) &
-        (iy >= 0) & (iy < H)
+        (ix >= 0) & (ix < map_W) &
+        (iy >= 0) & (iy < map_H)
     )
 
     ix = ix[valid]
     iy = iy[valid]
     z = points_world[:, 2][valid]
 
-    # 高さ0未満は0
     z = torch.clamp(z, min=0.0)
-
-    # y反転
-    iy = (H - 1) - iy
-
-    # 1次元インデックス
-    linear = iy * W + ix
-
-    # 高さマップ
+    iy = (map_H - 1) - iy
+    linear = iy * map_W + ix
+    print(f"map_W: {map_W}, map_H: {map_H}, Total: {map_W * map_H}")
     height_map = torch.full(
-        (H * W,),
+        (map_H * map_W,),
         float("-inf"),
         device=points_world.device,
     )
+    print(f"height_map {height_map.numel()}")
 
-    # 最大高さを書き込む
     height_map.scatter_reduce_(
         0,
         linear,
@@ -259,7 +242,7 @@ def create_height_map_torch(points_world, labels=None):
         include_self=True,
     )
 
-    height_map = height_map.view(H, W)
+    height_map = height_map.view(map_H, map_W)
     height_map[height_map == float("-inf")] = 0.0
 
     return height_map
@@ -303,13 +286,13 @@ def depth_to_world(
     cam_quat_ros: torch.Tensor,
 ):
     """
-    depth      : (H, W)
+    depth      : (img_H, img_W)
     intrinsic  : (3, 3)
     cam_pos    : (3,)
     cam_quat_ros : (4,)  (ROS convention)
     """
 
-    H, W = depth.shape
+    img_H, img_W = depth.shape
     device = depth.device
 
     fx = intrinsic[0, 0]
@@ -320,8 +303,8 @@ def depth_to_world(
     # -----------------------------
     # Pixel coordinates
     # -----------------------------
-    u = torch.arange(W, device=device)
-    v = torch.arange(H, device=device)
+    u = torch.arange(img_W, device=device)
+    v = torch.arange(img_H, device=device)
     uu, vv = torch.meshgrid(u, v, indexing="xy")
 
     z = depth
@@ -347,17 +330,14 @@ def depth_to_world(
         R @ points_cam.reshape(-1, 3).T
     ).T + cam_pos
 
-    return points_world.reshape(H, W, 3)
+    return points_world.reshape(img_H, img_W, 3)
 
-def add_camera_marker(height_map, cam_pos):
-
+def add_camera_marker(height_map, cam_pos, xmin, ymin, resolution, map_W, map_H):
     ix = int((cam_pos[0] - xmin) / resolution)
-    iy = int((cam_pos[1] - ymin) / resolution)
+    iy = int((cam_pos[1] - ymin) / resolution)    
 
-    if 0 <= ix < W and 0 <= iy < H:
-        # 【修正ポイント】ヒートマップ本体のY軸反転に合わせて、マーカーのY位置も反転させる
-        iy_flipped = (H - 1) - iy
-
+    if 0 <= ix < map_W and 0 <= iy < map_H:
+        iy_flipped = (map_H - 1) - iy
         height_map[
             max(0, iy_flipped - 3) : iy_flipped + 4,
             max(0, ix - 3) : ix + 4
@@ -418,6 +398,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         cfg.markers["hit"].radius = 0.002
         pc_markers = VisualizationMarkers(cfg)
 
+    # マップのサイズ（固定）
+    resolution = 0.025
+    map_size = 8.0  # マップの一辺の長さ（8m四方）
+    map_W = int(map_size / resolution)
+    map_H = int(map_size / resolution)
+
     count = 0
     while simulation_app.is_running():
 
@@ -449,7 +435,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         if keyboard_ctrl.is_key_pressed("E"):  # Down
             vz -= speed
         # endregion
-
+        if count % 10 != 0:
+            continue
         # ============================================================
         # ① カメラ位置更新
         # ============================================================
@@ -466,8 +453,13 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         torch.cuda.synchronize()
         t1 = time.perf_counter()
 
-        if count % 10 != 0:
-            continue
+        # --- 【追加】カメラの現在地(X, Y)を中心にした動的範囲の計算 ---
+        cam_x = camera_positions[camera_index, 0].item()
+        cam_y = camera_positions[camera_index, 1].item()
+        xmin = cam_x - map_size / 2.0
+        xmax = cam_x + map_size / 2.0
+        ymin = cam_y - map_size / 2.0
+        ymax = cam_y + map_size / 2.0
 
         #Get camera data and generate pointcloud
         #region 座標変換
@@ -501,10 +493,10 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         fy = camera.data.intrinsic_matrices[camera_index][1, 1]
         cx = camera.data.intrinsic_matrices[camera_index][0, 2]
         cy = camera.data.intrinsic_matrices[camera_index][1, 2]
-        H, W = depth.shape
+        img_H, img_W = depth.shape
         u, v = torch.meshgrid(
-            torch.arange(W, device=depth.device),
-            torch.arange(H, device=depth.device),
+            torch.arange(img_W, device=depth.device),
+            torch.arange(img_H, device=depth.device),
             indexing="xy",
         )
         # 有効なdepthだけ
@@ -530,9 +522,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         points_world = (
             R @ points_cam.reshape(-1, 3).T
         ).T + camera_positions[0]
-        points_world_img = points_world.reshape(H, W, 3)
-        u = W // 2
-        v = H // 2
+        points_world_img = points_world.reshape(img_H, img_W, 3)
+        u = img_W // 2
+        v = img_H // 2
         print("camera =", points_cam[v, u])
         print("world  =", points_world_img[v, u])
         #endregion
@@ -545,21 +537,25 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # region 外れ値処理
         #無効点・異常高さを判定
         valid_mask = (
-            torch.isfinite(points_world_img).all(dim=-1)
-            &
-            (points_world_img[...,2] > -0.1)
-            &
-            (points_world_img[...,2] < 3.0)
-        )
-        # ヒートマップ用点群（[N,3]）
-        points_world = points_world_img[valid_mask]
-        #地図範囲外を捨て
-        bounds_mask = (
-            (points_world[:, 0] >= xmin) & (points_world[:, 0] <= xmax) &
-            (points_world[:, 1] >= ymin) & (points_world[:, 1] <= ymax) &
-            (points_world[:, 2] >= -1.0) & (points_world[:, 2] <= 2.0)
-        )
-        points_world = points_world[bounds_mask]
+                    torch.isfinite(points_world_img).all(dim=-1)
+                    & (points_world_img[..., 2] > -0.1)
+                    & (points_world_img[..., 2] < 3.0)
+                    & (points_world_img[..., 0] >= xmin) 
+                    & (points_world_img[..., 0] <= xmax) 
+                    & (points_world_img[..., 1] >= ymin) 
+                    & (points_world_img[..., 1] <= ymax)
+                    & (points_world_img[..., 2] >= -1.0) 
+                    & (points_world_img[..., 2] <= 2.0)
+                )
+        # # ヒートマップ用点群（[N,3]）
+        # points_world = points_world_img[valid_mask]
+        # #地図範囲外を捨て
+        # bounds_mask = (
+        #     (points_world[:, 0] >= xmin) & (points_world[:, 0] <= xmax) &
+        #     (points_world[:, 1] >= ymin) & (points_world[:, 1] <= ymax) &
+        #     (points_world[:, 2] >= -1.0) & (points_world[:, 2] <= 2.0)
+        # )
+        # points_world = points_world[bounds_mask]
 
         z = points_world_img[...,2]
 
@@ -647,9 +643,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # ⑩ HeightMap生成
         # ============================================================
         # region HeightMap generation & update
-        height_map = create_height_map_torch(
-            points_flat
-        )
+        height_map = create_height_map_torch(points_flat, xmin, ymin, resolution, map_W, map_H)
         #endregion
         torch.cuda.synchronize()
         t10 = time.perf_counter()
@@ -681,7 +675,11 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # ============================================================
         # ⑬ Camera marker
         # ============================================================
-        height_map = add_camera_marker(height_map, camera_positions[camera_index].cpu().numpy())
+        height_map = add_camera_marker(
+                    height_map, 
+                    camera_positions[camera_index].cpu().numpy(), 
+                    xmin, ymin, resolution, map_W, map_H
+                )
         t13 = time.perf_counter()
 
         # ============================================================
