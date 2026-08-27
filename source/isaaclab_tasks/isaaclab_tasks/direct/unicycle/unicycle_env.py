@@ -8,6 +8,7 @@ from __future__ import annotations
 import gymnasium as gym
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObject  # キューブ（剛体）用のクラスに変更
@@ -22,6 +23,8 @@ from isaaclab.markers.config import FRAME_MARKER_CFG, CUBOID_MARKER_CFG, SPHERE_
 from isaaclab.sensors import Camera
 from PIL import Image
 from .heightmap_generator import HeightMapGenerator
+from isaaclab.sensors.ray_caster import MultiMeshRayCaster
+from .ray_heightmap_generator import RayHeightmapGenerator
 
 class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
@@ -53,6 +56,7 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 障害物のサイズ
         # ==========================================
+        self.obstacle_stage = 3
         self.obstacle_size = torch.tensor(
             self.cfg.obstacle1.spawn.size,
             device=self.device,
@@ -66,11 +70,18 @@ class UnicycleEnv(DirectRLEnv):
             map_size=8.0,
             device=self.device,
         )
+        self.ray_heightmap_generator = RayHeightmapGenerator(
+            map_size=8.0,
+            output_size=80,
+            gui_enabled=True,
+            gui_update_interval=10,
+        )
 
     def _setup_scene(self):
         # キューブ（RigidObject）をロボットとしてスポーン
         # ※ cfg.robot にキューブのプリミティブ設定またはUSDパスが指定されている想定
         self.robot = RigidObject(self.cfg.robot)
+        self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
         # self.camera = Camera(self.cfg.camera)
         self.obstacle1 = RigidObject(self.cfg.obstacle1)
         self.obstacle2 = RigidObject(self.cfg.obstacle2)
@@ -90,6 +101,7 @@ class UnicycleEnv(DirectRLEnv):
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         # シーンに剛体として登録
         self.scene.rigid_objects["robot"] = self.robot
+        self.scene.sensors["ray_caster"] = self.ray_caster
         # self.scene.sensors["camera"] = self.camera
         self.scene.rigid_objects["obstacle1"] = self.obstacle1
         self.scene.rigid_objects["obstacle2"] = self.obstacle2
@@ -196,6 +208,13 @@ class UnicycleEnv(DirectRLEnv):
         # height_map = height_map.flatten(start_dim=1)
         height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
 
+        ray_data = self.scene.sensors["ray_caster"].data
+        ray_hits_w = ray_data.ray_hits_w
+        ray_heightmap = self.ray_heightmap_generator.generate(
+            ray_hits_w
+        )
+        print("ray_heightmap:", ray_heightmap.shape)
+
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
         policy_obs = torch.cat(
             (
@@ -296,7 +315,6 @@ class UnicycleEnv(DirectRLEnv):
         # init_xy = root_state[:, :2]
         # rand_dist = torch.rand(len(env_ids), device=self.device) * 3.0 + 2.0
         # rand_angle = torch.rand(len(env_ids), device=self.device) * 2.0 * torch.pi - torch.pi
-        
         # self.goal_pos_w[env_ids] = init_xy + torch.stack([
         #     rand_dist * torch.cos(rand_angle),
         #     rand_dist * torch.sin(rand_angle)
@@ -307,50 +325,49 @@ class UnicycleEnv(DirectRLEnv):
         )
 
         # =====================
-        # 固定obstacle
+        # 障害物配置
         # =====================
-        # y = torch.rand(1, device=self.device) * 2.0 - 1.0
-        # obstacle_xy = torch.tensor(
-        #     [2.5, y],
-        #     device=self.device
-        # )
-        # obstacle_state = self.obstacle.data.default_root_state[env_ids].clone()
-        # obstacle_state[:, 0:2] = (
-        #     self.scene.env_origins[env_ids, :2]
-        #     + obstacle_xy
-        # )
-        # obstacle_state[:, 2] = 0.25.
-        # self.obstacle.write_root_link_pose_to_sim(
-        #     obstacle_state[:, :7],
-        #     env_ids
-        # )
-
-        # 障害物のランダム位置
         num_envs = len(env_ids)
-        pos1 = torch.zeros((num_envs, 3), device=self.device)
-        pos1[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.5, 3.5)
-        pos1[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
-        pos1[:, 2] = 0.25
 
-        pos2 = torch.zeros((num_envs, 3), device=self.device)
-        pos2[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.5, 3.5)
-        pos2[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
-        pos2[:, 2] = 0.25
+        if self.obstacle_stage == 0:
+            # 障害物なし
+            far_away = 100.0
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3]:
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([far_away, 0.0, 0.25], device=self.device)
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
 
-        pos3 = torch.zeros((num_envs, 3), device=self.device)
-        pos3[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.5, 3.5)
-        pos3[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
-        pos3[:, 2] = 0.25
+        elif self.obstacle_stage == 1:
+            # 障害物1個・固定位置
+            obstacle1_state = self.obstacle1.data.default_root_state[env_ids].clone()
+            obstacle1_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([2.5, 0.0, 0.25], device=self.device)
+            self.obstacle1.write_root_pose_to_sim(obstacle1_state[:, :7], env_ids)
+            for obstacle in [self.obstacle2, self.obstacle3]:
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
 
-        # ランダム位置を障害物に適用
-        obstacle1_state = self.obstacle1.data.default_root_state[env_ids].clone()
-        obstacle1_state[:, :3] = pos1 + self.scene.env_origins[env_ids]
-        self.obstacle1.write_root_pose_to_sim(obstacle1_state[:, :7], env_ids)
+        elif self.obstacle_stage == 2:
+            # 障害物1個・ランダム位置
+            pos1 = torch.zeros((num_envs, 3), device=self.device)
+            pos1[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.5, 3.5)
+            pos1[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
+            pos1[:, 2] = 0.25
+            obstacle1_state = self.obstacle1.data.default_root_state[env_ids].clone()
+            obstacle1_state[:, :3] = pos1 + self.scene.env_origins[env_ids]
+            self.obstacle1.write_root_pose_to_sim(obstacle1_state[:, :7], env_ids)
+            for obstacle in [self.obstacle2, self.obstacle3]:
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
 
-        obstacle2_state = self.obstacle2.data.default_root_state[env_ids].clone()
-        obstacle2_state[:, :3] = pos2 + self.scene.env_origins[env_ids]
-        self.obstacle2.write_root_pose_to_sim(obstacle2_state[:, :7], env_ids)
-
-        obstacle3_state = self.obstacle3.data.default_root_state[env_ids].clone()
-        obstacle3_state[:, :3] = pos3 + self.scene.env_origins[env_ids]
-        self.obstacle3.write_root_pose_to_sim(obstacle3_state[:, :7], env_ids)
+        elif self.obstacle_stage == 3:
+            # 障害物3個・ランダム位置
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3]:
+                pos = torch.zeros((num_envs, 3), device=self.device)
+                pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(-3.5, 3.5)
+                pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-3.5, 3.5)
+                pos[:, 2] = 0.25
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)

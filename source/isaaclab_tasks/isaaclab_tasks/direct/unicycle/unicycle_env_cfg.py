@@ -11,7 +11,8 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import PhysxCfg, SimulationCfg
 from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
-from isaaclab.sensors import CameraCfg
+from isaaclab.sensors import CameraCfg, MultiMeshRayCasterCfg, patterns
+from isaaclab.sensors.ray_caster import RayCasterCfg
 
 @configclass
 class UnicycleEnvCfg(DirectRLEnvCfg):
@@ -79,7 +80,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle2 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle2",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(1.0, 0.5, 0.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -93,7 +94,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle3 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle3",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(0.5, 1.0, 0.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -120,4 +121,27 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             rot=(-0.5, 0.5, -0.5, 0.5),
             convention="ros",
         ),
+    )
+
+    ray_caster = MultiMeshRayCasterCfg(
+        prim_path="/World/envs/env_.*/Robot",
+        update_period=0.0,
+        ray_alignment="yaw",
+        offset=RayCasterCfg.OffsetCfg(
+            pos=(0.0, 0.0, 2.0),
+        ),
+        pattern_cfg=patterns.GridPatternCfg(
+            resolution=0.1,
+            size=(8.0, 8.0),
+            direction=(0.0, 0.0, -1.0),
+            ordering="yx",
+        ),
+        mesh_prim_paths=[
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/Obstacle.*",
+                track_mesh_transforms=True,
+            ),
+        ],
+        max_distance=4.0,
+        debug_vis=False,
     )

@@ -220,6 +220,7 @@ class HeightMapGenerator:
             ).squeeze(0).squeeze(0)
             height_maps.append(height_map)
         height_maps = torch.stack(height_maps)
+        #ロボット回転に追従してヒートマップも回転
         height_maps = self.rotate_to_robot_frame(height_maps, robot_yaw)
         if self.gui_enabled:
             self.update_gui(height_maps, robot_pos)
