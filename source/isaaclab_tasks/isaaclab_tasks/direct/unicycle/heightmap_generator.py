@@ -63,6 +63,32 @@ class HeightMapGenerator:
                 self.image_widget = ui.Image(width=550, height=550)
 
     # ================================================================
+    # ロボット前方合わせ
+    # ================================================================
+    def rotate_to_robot_frame(self, height_maps, robot_yaw):
+        N, H, W = height_maps.shape
+        y, x = torch.meshgrid(
+            torch.linspace(-1.0, 1.0, H, device=height_maps.device),
+            torch.linspace(-1.0, 1.0, W, device=height_maps.device),
+            indexing="ij",
+        )
+        x = x.unsqueeze(0).expand(N, -1, -1)
+        y = y.unsqueeze(0).expand(N, -1, -1)
+        cos_yaw = torch.cos(robot_yaw).view(N, 1, 1)
+        sin_yaw = torch.sin(robot_yaw).view(N, 1, 1)
+        x_src = cos_yaw * x - sin_yaw * y
+        y_src = sin_yaw * x + cos_yaw * y
+        grid = torch.stack([x_src, y_src], dim=-1)
+        rotated = F.grid_sample(
+            height_maps.unsqueeze(1),
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+        return rotated.squeeze(1)
+    
+    # ================================================================
     # HeightMap -> colored texture
     # ================================================================
     def heightmap_to_texture(self, height_map):
@@ -82,19 +108,15 @@ class HeightMapGenerator:
     # ================================================================
     # Robot marker
     # ================================================================
-    def add_robot_marker(self, height_map, robot_pos, xmin, ymin):
-        ix = int((robot_pos[0] - xmin) / self.resolution)
-        iy = int((robot_pos[1] - ymin) / self.resolution)
-
-        if 0 <= ix < self.map_W and 0 <= iy < self.map_H:
-            iy_flipped = (self.map_H - 1) - iy
-            marker_value = height_map.max() + 0.2
-            y0 = max(0, iy_flipped - 3)
-            y1 = min(self.map_H, iy_flipped + 4)
-            x0 = max(0, ix - 3)
-            x1 = min(self.map_W, ix + 4)
-            height_map[y0:y1, x0:x1] = marker_value
-
+    def add_robot_marker(self, height_map):
+        ix = self.map_W // 2
+        iy = self.map_H // 2
+        marker_value = height_map.max() + 0.2
+        y0 = max(0, iy - 3)
+        y1 = min(self.map_H, iy + 4)
+        x0 = max(0, ix - 3)
+        x1 = min(self.map_W, ix + 4)
+        height_map[y0:y1, x0:x1] = marker_value
         return height_map
 
     # ================================================================
@@ -150,35 +172,24 @@ class HeightMapGenerator:
     # ================================================================
     # GUI update
     # ================================================================
-    def update_gui(self, height_map, robot_pos, xmin, ymin):
+    def update_gui(self, height_map, robot_pos):
         if not self.gui_enabled:
             return
-
         self.gui_counter += 1
         if self.gui_counter % self.gui_update_interval != 0:
             return
-
         hm = height_map[0]
         hm_np = hm.detach().cpu().numpy().copy()
         robot_pos_np = robot_pos[0].detach().cpu().numpy()
-
-        hm_np = self.add_robot_marker(
-            hm_np,
-            robot_pos_np,
-            xmin[0].item(),
-            ymin[0].item(),
-        )
-
+        hm_np = self.add_robot_marker(hm_np)
         texture = self.heightmap_to_texture(hm_np)
         texture_path = f"/tmp/heightmap_gui_{self.gui_counter}.png"
         with open(texture_path, "wb") as f:
             f.write(texture)
-
         self.image_widget.source_url = texture_path
         self.info_label.text = (
             f"HeightMap | env=0 | "
             f"robot=({robot_pos_np[0]:.3f}, {robot_pos_np[1]:.3f}) | "
-            f"map_origin=({xmin[0].item():.3f}, {ymin[0].item():.3f}) | "
             f"shape={hm_np.shape} | "
             f"min={hm_np.min():.3f} | "
             f"max={hm_np.max():.3f}"
@@ -188,19 +199,11 @@ class HeightMapGenerator:
     # ================================================================
     # Generate
     # ================================================================
-    def generate(self, robot_pos, obstacle_positions, obstacle_sizes):
+    def generate(self, robot_pos, robot_yaw, obstacle_positions, obstacle_sizes):
         height_maps = []
-
         for env_id in range(robot_pos.shape[0]):
             xmin = robot_pos[env_id, 0] - self.map_size / 2.0
             ymin = robot_pos[env_id, 1] - self.map_size / 2.0
-
-            if env_id == 0:
-                print(
-                    f"[HM] robot = ({robot_pos[env_id, 0].item():.3f}, {robot_pos[env_id, 1].item():.3f}) "
-                    f"xmin={xmin.item():.3f} ymin={ymin.item():.3f}"
-                )
-
             all_points = []
             for obstacle_id in range(obstacle_positions.shape[1]):
                 points = self.create_cube_points(
@@ -208,23 +211,17 @@ class HeightMapGenerator:
                     obstacle_sizes[env_id, obstacle_id],
                 )
                 all_points.append(points)
-
             points = torch.cat(all_points, dim=0)
             height_map = self.create_height_map(points, xmin, ymin)
-
             height_map = F.conv2d(
                 height_map.unsqueeze(0).unsqueeze(0),
                 self.gaussian_kernel,
                 padding=self.kernel_size // 2,
             ).squeeze(0).squeeze(0)
-
             height_maps.append(height_map)
-
         height_maps = torch.stack(height_maps)
-
+        height_maps = self.rotate_to_robot_frame(height_maps, robot_yaw)
         if self.gui_enabled:
-            xmin_all = robot_pos[:, 0] - self.map_size / 2.0
-            ymin_all = robot_pos[:, 1] - self.map_size / 2.0
-            self.update_gui(height_maps, robot_pos, xmin_all, ymin_all)
-
+            self.update_gui(height_maps, robot_pos)
+            
         return height_maps

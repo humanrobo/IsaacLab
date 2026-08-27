@@ -185,9 +185,10 @@ class UnicycleEnv(DirectRLEnv):
             dim=1,
         )
         height_map = self.heightmap_generator.generate(
-            robot_pos=root_pos_w,
-            obstacle_positions=obstacle_positions,
-            obstacle_sizes=self.obstacle_size,
+            root_pos_w,
+            robot_yaw,
+            obstacle_positions,
+            self.obstacle_size,
         )
         # print("height_map shape:", height_map.shape)
         # print("height_map min:", height_map.min().item())
