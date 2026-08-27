@@ -62,8 +62,22 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         ),
     )
 
-    obstacle = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/Obstacle",
+    obstacle1 = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/Obstacle1",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 0.5, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, -0.8, 0.25),
+        ),
+    )
+
+    obstacle2 = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/Obstacle2",
         spawn=sim_utils.CuboidCfg(
             size=(0.5, 0.5, 0.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -73,6 +87,20 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(2.5, 0.0, 0.25),
+        ),
+    )
+
+    obstacle3 = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/Obstacle3",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 0.5, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.8, 0.25),
         ),
     )
 
