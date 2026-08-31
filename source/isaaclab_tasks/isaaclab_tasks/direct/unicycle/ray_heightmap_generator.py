@@ -13,7 +13,7 @@ class RayHeightmapGenerator:
         self,
         map_size=8.0,
         output_size=80,
-        gui_enabled=False,
+        gui_enabled=True,
         gui_update_interval=10,
     ):
         self.map_size = map_size
