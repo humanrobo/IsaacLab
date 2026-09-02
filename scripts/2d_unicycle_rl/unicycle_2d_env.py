@@ -14,6 +14,12 @@ class Unicycle2DEnv:
         self.map_size_px=80
         self.num_obstacles=1
         self.robot_radius=0.25
+        self.curriculum_stage=1
+        self.prev_collision=torch.zeros(num_envs,dtype=torch.bool,device=self.device)
+        self.stage_thresholds=[0.90,0.85,0.80,0.75]
+        self.eval_episodes=200
+        self.success_count=0
+        self.completed_episodes=0
         self.robot_pos=torch.zeros(num_envs,2,device=self.device)
         self.robot_yaw=torch.zeros(num_envs,device=self.device)
         self.prev_v=torch.zeros(num_envs,device=self.device)
@@ -23,6 +29,7 @@ class Unicycle2DEnv:
         self.obstacle_size=torch.zeros(num_envs,self.num_obstacles,2,device=self.device)
         self.episode_length=torch.zeros(num_envs,dtype=torch.long,device=self.device)
         self.prev_goal_dist=torch.zeros(num_envs,device=self.device)
+        print(f"[Curriculum] Stage {self.curriculum_stage}")
         self.reset()
 
     def reset(self,env_ids=None):
@@ -30,31 +37,79 @@ class Unicycle2DEnv:
             env_ids=torch.arange(self.num_envs,device=self.device)
         n=len(env_ids)
         self.robot_pos[env_ids]=0.0
-        self.robot_yaw[env_ids]=torch.empty(n,device=self.device).uniform_(-math.pi,math.pi)
         self.prev_v[env_ids]=0.0
         self.prev_omega[env_ids]=0.0
-        goal=torch.empty(n,2,device=self.device).uniform_(-4.0,4.0)
-        goal[:,0]+=2.0
-        self.goal_pos[env_ids]=goal
-        obstacle_pos=torch.empty(n,self.num_obstacles,2,device=self.device).uniform_(-3.5,3.5)
-        obstacle_pos[:,:,0]+=1.5
-        min_distance=1.0
-        distance=torch.linalg.vector_norm(obstacle_pos,dim=-1)
-        invalid=distance<min_distance
-        while invalid.any():
-            count=invalid.sum().item()
-            new_pos=torch.empty(count,2,device=self.device).uniform_(-3.5,3.5)
-            new_pos[:,0]+=1.5
-            obstacle_pos[invalid]=new_pos
-            distance=torch.linalg.vector_norm(obstacle_pos,dim=-1)
-            invalid=distance<min_distance
-        self.obstacle_pos[env_ids]=obstacle_pos
-        self.obstacle_size[env_ids,:,0]=torch.empty(n,self.num_obstacles,device=self.device).uniform_(1.0,7.0)
-        self.obstacle_size[env_ids,:,1]=torch.empty(n,self.num_obstacles,device=self.device).uniform_(0.5,2.0)
+        self.prev_collision[env_ids]=False
+        if self.curriculum_stage==0:
+            self.robot_yaw[env_ids]=0.0
+            self.goal_pos[env_ids]=torch.tensor([4.0,0.0],device=self.device)
+            self.obstacle_pos[env_ids]=100.0
+            self.obstacle_size[env_ids]=0.0
+        elif self.curriculum_stage==1:
+            self.robot_yaw[env_ids] = torch.empty(
+                n, device=self.device
+            ).uniform_(-math.pi / 4, math.pi / 4)
+            self.goal_pos[env_ids]=torch.tensor([4.0,0.0],device=self.device)
+            self.obstacle_pos[env_ids,0]=torch.tensor([2.0,0.0],device=self.device)
+            self.obstacle_size[env_ids,0]=torch.tensor([0.25,0.25],device=self.device)
+        elif self.curriculum_stage==2:
+            self.robot_yaw[env_ids]=0.0
+            self.goal_pos[env_ids]=torch.tensor([4.0,0.0],device=self.device)
+            obstacle_pos=torch.empty(n,self.num_obstacles,2,device=self.device).uniform_(-3.0,3.0)
+            obstacle_pos[:,:,0]+=1.5
+            self.obstacle_pos[env_ids]=obstacle_pos
+            self.obstacle_size[env_ids,:,0]=2.0
+            self.obstacle_size[env_ids,:,1]=1.0
+            self._move_obstacles_away_from_robot(env_ids)
+        elif self.curriculum_stage==3:
+            self.robot_yaw[env_ids]=0.0
+            self.goal_pos[env_ids]=torch.tensor([4.0,0.0],device=self.device)
+            obstacle_pos=torch.empty(n,self.num_obstacles,2,device=self.device).uniform_(-3.0,3.0)
+            obstacle_pos[:,:,0]+=1.5
+            self.obstacle_pos[env_ids]=obstacle_pos
+            self.obstacle_size[env_ids,:,0]=torch.empty(n,self.num_obstacles,device=self.device).uniform_(1.0,4.0)
+            self.obstacle_size[env_ids,:,1]=torch.empty(n,self.num_obstacles,device=self.device).uniform_(0.5,2.0)
+            self._move_obstacles_away_from_robot(env_ids)
+        else:
+            self.robot_yaw[env_ids]=torch.empty(n,device=self.device).uniform_(-math.pi,math.pi)
+            goal=torch.empty(n,2,device=self.device).uniform_(-4.0,4.0)
+            goal[:,0]+=2.0
+            self.goal_pos[env_ids]=goal
+            obstacle_pos=torch.empty(n,self.num_obstacles,2,device=self.device).uniform_(-3.0,3.0)
+            obstacle_pos[:,:,0]+=1.5
+            self.obstacle_pos[env_ids]=obstacle_pos
+            self.obstacle_size[env_ids,:,0]=torch.empty(n,self.num_obstacles,device=self.device).uniform_(1.0,4.0)
+            self.obstacle_size[env_ids,:,1]=torch.empty(n,self.num_obstacles,device=self.device).uniform_(0.5,2.0)
+            self._move_obstacles_away_from_robot(env_ids)
+            self._move_obstacles_away_from_goal(env_ids)
         self.episode_length[env_ids]=0
         self.prev_goal_dist[env_ids]=self.goal_distance()[env_ids]
         return self.get_observations()
-    
+
+    def _move_obstacles_away_from_robot(self,env_ids):
+        for _ in range(20):
+            d=self.obstacle_pos[env_ids]-self.robot_pos[env_ids,None,:]
+            half=self.obstacle_size[env_ids]*0.5+self.robot_radius+0.1
+            invalid=(d[...,0].abs()<half[...,0])&(d[...,1].abs()<half[...,1])
+            if not invalid.any():
+                break
+            count=invalid.sum().item()
+            new_pos=torch.empty(count,2,device=self.device).uniform_(-3.0,3.0)
+            new_pos[:,0]+=1.5
+            self.obstacle_pos[env_ids][invalid]=new_pos
+
+    def _move_obstacles_away_from_goal(self,env_ids):
+        for _ in range(20):
+            d=self.obstacle_pos[env_ids]-self.goal_pos[env_ids,None,:]
+            half=self.obstacle_size[env_ids]*0.5+0.1
+            invalid=(d[...,0].abs()<half[...,0])&(d[...,1].abs()<half[...,1])
+            if not invalid.any():
+                break
+            count=invalid.sum().item()
+            new_pos=torch.empty(count,2,device=self.device).uniform_(-3.0,3.0)
+            new_pos[:,0]+=1.5
+            self.obstacle_pos[env_ids][invalid]=new_pos
+
     def step(self,action):
         v=torch.clamp(action[:,0],-1.0,1.0)*self.max_v
         omega=torch.clamp(action[:,1],-1.0,1.0)*self.max_omega
@@ -73,17 +128,42 @@ class Unicycle2DEnv:
         self.prev_goal_dist=dist
         goal_reached=dist<0.3
         timeout=self.episode_length>=self.max_episode_length
+        collision_forward=collision&(v>0.0)
+        collision_stuck=collision&(torch.abs(omega)<0.2)
+        collision_escape=self.prev_collision&(~collision)
         reward=progress*5.0
         reward+=goal_reached.float()*20.0
         reward-=collision.float()*20.0
+        reward-=collision_forward.float()*5.0
+        reward-=collision_stuck.float()*2.0
+        reward+=collision_escape.float()*2.0
         reward-=0.01
         done=goal_reached|timeout
-        info={"goal":goal_reached,"collision":collision}
+        info={"goal":goal_reached,"success":goal_reached,"collision":collision,"stage":self.curriculum_stage}
+        self._update_curriculum(done,goal_reached)
+        self.prev_collision=collision
         obs=self.get_observations()
         reset_ids=torch.nonzero(done,as_tuple=False).squeeze(-1)
         if reset_ids.numel()>0:
             self.reset(reset_ids)
         return obs,reward,done,info
+
+    def _update_curriculum(self,done,goal_reached):
+        done_ids=torch.nonzero(done,as_tuple=False).squeeze(-1)
+        if done_ids.numel()==0:
+            return
+        self.completed_episodes+=done_ids.numel()
+        self.success_count+=goal_reached[done_ids].sum().item()
+        if self.completed_episodes>=self.eval_episodes:
+            success_rate=self.success_count/self.completed_episodes
+            if self.curriculum_stage<4:
+                threshold=self.stage_thresholds[self.curriculum_stage]
+                if success_rate>=threshold:
+                    old_stage=self.curriculum_stage
+                    # self.curriculum_stage+=1
+                    # print(f"[Curriculum] Stage {old_stage} -> {self.curriculum_stage} | success_rate={success_rate:.3f}")
+            self.completed_episodes=0
+            self.success_count=0
 
     def goal_distance(self):
         return torch.linalg.vector_norm(self.goal_pos-self.robot_pos,dim=-1)
@@ -101,18 +181,6 @@ class Unicycle2DEnv:
         half=self.obstacle_size*0.5+self.robot_radius
         inside=(d[...,0].abs()<half[...,0])&(d[...,1].abs()<half[...,1])
         return inside.any(dim=1)
-
-    def compute_reward(self):
-        dist=self.goal_distance()
-        progress=self.prev_goal_dist-dist
-        self.prev_goal_dist=dist
-        goal=dist<0.3
-        collision=self.check_collision()
-        reward=progress*5.0
-        reward+=goal.float()*20.0
-        reward-=collision.float()*20.0
-        reward-=0.01
-        return reward,{"goal":goal,"collision":collision}
 
     def get_occupancy_map(self):
         N=self.num_envs

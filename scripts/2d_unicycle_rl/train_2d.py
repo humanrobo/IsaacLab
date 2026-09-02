@@ -12,7 +12,7 @@ from models import Policy,Value
 
 NUM_ENVS=1024
 DEVICE="cuda"
-TIMESTEPS=6000
+TIMESTEPS=2000
 ROLLOUTS=8
 LEARNING_EPOCHS=3
 MINI_BATCHES=16
@@ -27,6 +27,7 @@ class Unicycle2DTrainEnv(Wrapper):
         self._observation_space=gym.spaces.Box(low=-float("inf"),high=float("inf"),shape=(6411,),dtype=float)
         self._action_space=gym.spaces.Box(low=-1.0,high=1.0,shape=(2,),dtype=float)
         self._state_space=None
+        self.step_count=0
     @property
     def num_envs(self):
         return self._num_envs
@@ -57,6 +58,11 @@ class Unicycle2DTrainEnv(Wrapper):
         reward=reward.reshape(self._num_envs,1)
         terminated=done.reshape(self._num_envs,1)
         truncated=torch.zeros_like(terminated)
+        self.step_count+=1
+        if self.step_count%100==0:
+            success_rate=info["success"].float().mean().item()
+            collision_rate=info["collision"].float().mean().item()
+            print(f"[Train] step={self.step_count} reward_mean={reward.mean().item():.4f} reward_max={reward.max().item():.4f} reward_min={reward.min().item():.4f} success={success_rate:.3f} collision={collision_rate:.3f}")
         return self._flatten_obs(obs),reward,terminated,truncated,info
     def close(self):
         pass

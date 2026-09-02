@@ -32,7 +32,6 @@ class UnicycleEnv(DirectRLEnv):
 
     def __init__(self, cfg: UnicycleEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-        
         print("--- Unicycle Environment Initialized ---")
 
         # ユニサイクル探索用の変数を初期化
@@ -44,6 +43,10 @@ class UnicycleEnv(DirectRLEnv):
         # アクションのスケールとオフセット（必要に応じて調整）
         self.action_scale_lin = 1.0   # 最大線速度 [m/s]
         self.action_scale_ang = 2.0   # 最大角速度 [rad/s]
+        # ==========================================
+        # 報酬用変数
+        # ==========================================
+        self.obstacle_passed = torch.zeros((self.num_envs, 3), dtype=torch.bool, device=self.device)
         # ==========================================
         # ゴール表示用マーカーの設定と初期化
         # ==========================================
@@ -57,12 +60,9 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 障害物のサイズ
         # ==========================================
-        self.obstacle_stage = 1
-        self.obstacle_size = torch.tensor(
-            self.cfg.obstacle1.spawn.size,
-            device=self.device,
-            dtype=torch.float32,
-        ).view(1, 1, 3).repeat(self.num_envs, 3, 1)
+        self.obstacle_stage = 5
+        # self.obstacle_radius = self.cfg.obstacle1.spawn.radius
+        # self.obstacle_height = self.cfg.obstacle1.spawn.height
         # ==========================================
         # ヒートマップ作成
         # ==========================================
@@ -87,6 +87,7 @@ class UnicycleEnv(DirectRLEnv):
         self.obstacle1 = RigidObject(self.cfg.obstacle1)
         self.obstacle2 = RigidObject(self.cfg.obstacle2)
         self.obstacle3 = RigidObject(self.cfg.obstacle3)
+        self.obstacle_long = RigidObject(self.cfg.obstacle_long)
         spawn_ground_plane(
             prim_path="/World/ground",
             cfg=GroundPlaneCfg(
@@ -107,6 +108,7 @@ class UnicycleEnv(DirectRLEnv):
         self.scene.rigid_objects["obstacle1"] = self.obstacle1
         self.scene.rigid_objects["obstacle2"] = self.obstacle2
         self.scene.rigid_objects["obstacle3"] = self.obstacle3
+        self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
@@ -236,122 +238,86 @@ class UnicycleEnv(DirectRLEnv):
         root_lin_vel = self.robot.data.root_lin_vel_w
         # ==========================================
         # 障害物の中心位置
-        # ==========================================
-        obstacle_pos = torch.stack(
-            [
-                self.obstacle1.data.root_pos_w[:, :2],
-                self.obstacle2.data.root_pos_w[:, :2],
-                self.obstacle3.data.root_pos_w[:, :2],
-            ],
-            dim=1,
-        )
-        # ==========================================
-        # 障害物の半サイズ
-        # ==========================================
-        obstacle_half_size = torch.tensor(
-            [
-                [0.25, 0.25],  # Obstacle1: 0.5 x 0.5
-                [1.50, 0.25],  # Obstacle2: 3.0 x 0.5
-                [0.25, 1.50],  # Obstacle3: 0.5 x 3.0
-            ],
-            device=self.device,
-            dtype=root_pos_w.dtype,
-        )
-        # ==========================================
-        # ロボット中心から障害物中心まで
-        # ==========================================
-        d = torch.abs(root_pos_w[:, None, :2] - obstacle_pos)
-        # ==========================================
-        # 障害物表面までの距離
-        # ==========================================
-        outside = torch.clamp(
-            d - obstacle_half_size,
-            min=0.0,
-        )
-        obstacle_surface_dist = torch.norm(
-            outside,
-            dim=-1,
-        )
-        # 一番近い障害物までの表面距離
-        min_obstacle_dist = obstacle_surface_dist.min(dim=1).values
-        # ==========================================
-        # 衝突判定
-        # ==========================================
-        inside = torch.all(
-            d <= obstacle_half_size,
-            dim=-1,
-        )
-        collision = inside.any(dim=1)
-        # ==========================================
-        # 1. ゴール距離報酬
-        # ==========================================
-        distance_reward = torch.exp(
-            -1.0 * self.current_goal_dist
-        )
-        # ==========================================
-        # 2. ゴール方向への進捗速度
-        # ==========================================
+        obstacle_pos = torch.stack([
+            self.obstacle1.data.root_pos_w[:, :2],
+            self.obstacle2.data.root_pos_w[:, :2],
+            self.obstacle3.data.root_pos_w[:, :2],
+        ], dim=1)
+        # robot_radius = self.cfg.robot.spawn.radius
+        # obstacle_radius = self.cfg.obstacle1.spawn.radius
+        # # 円柱同士の中心距離
+        # center_dist = torch.norm(root_pos_w[:, None, :2] - obstacle_pos, dim=-1)
+        # # 障害物表面までの距離
+        # obstacle_surface_dist = torch.clamp(center_dist - robot_radius - obstacle_radius, min=0.0)
+        # min_obstacle_dist = obstacle_surface_dist.min(dim=1).values
+        # # 衝突判定
+        # collision = (center_dist <= (robot_radius + obstacle_radius)).any(dim=1)
+        # ゴール方向
         goal_vec_w = self.goal_pos_w - root_pos_w[:, :2]
-        goal_dir_w = goal_vec_w / (
-            torch.norm(
-                goal_vec_w,
-                dim=-1,
-                keepdim=True,
-            ) + 1e-5
-        )
-        approach_speed = torch.sum(
-            root_lin_vel[:, :2] * goal_dir_w,
-            dim=-1,
-        )
-        progress_reward = torch.clamp(
-            approach_speed,
-            min=0.0,
-        )
-        # ==========================================
-        # 3. 障害物への接近ペナルティ
-        # ==========================================
-        collision_penalty = torch.where(
-            min_obstacle_dist < 1.0,
-            -1.0 * (1.0 - min_obstacle_dist),
-            torch.zeros_like(min_obstacle_dist),
-        )
-        #==========================================
-        # 4. 衝突時の追加ペナルティ
-        # ==========================================
-        collision_penalty = torch.where(
-            collision,
-            collision_penalty - 2.0,
-            collision_penalty,
-        )
-        # ==========================================
-        # 5. 衝突中にゴール方向へ進もうとするペナルティ
-        # ==========================================
-        collision_forward_penalty = torch.where(
-            collision & (approach_speed > 0.0),
-            -1.0 * approach_speed,
-            torch.zeros_like(approach_speed),
-        )
-        # ==========================================
-        # 6. ゴール到達報酬
-        # ==========================================
+        goal_dist = torch.norm(goal_vec_w, dim=-1, keepdim=True)
+        goal_dir_w = goal_vec_w / (goal_dist + 1e-5)
+        # ゴール方向への進捗
+        approach_speed = torch.sum(root_lin_vel[:, :2] * goal_dir_w, dim=-1)
+        progress_reward = torch.clamp(approach_speed, min=0.0)
+        # 障害物への接近速度
+        obstacle_vec = obstacle_pos - root_pos_w[:, None, :2]
+        obstacle_dir = obstacle_vec / (torch.norm(obstacle_vec, dim=-1, keepdim=True) + 1e-5)
+        obstacle_approach_speed = torch.sum(root_lin_vel[:, None, :2] * obstacle_dir, dim=-1)
+        min_obstacle_approach_speed = obstacle_approach_speed.max(dim=1).values
+        obstacle_approach_penalty = -torch.clamp(min_obstacle_approach_speed, min=0.0)
+        # 障害物接近ペナルティ
+        # obstacle_penalty = -torch.clamp(1.0 - min_obstacle_dist, min=0.0)
+        # # 衝突ペナルティ
+        # collision_penalty = torch.where(collision, torch.full_like(min_obstacle_dist, -2.0), torch.zeros_like(min_obstacle_dist))
+        # # 障害物通過判定
+        # relative_pos = root_pos_w[:, None, :2] - obstacle_pos
+        # forward_dist = torch.sum(relative_pos * goal_dir_w[:, None, :], dim=-1)
+        # passed = (forward_dist > obstacle_radius + robot_radius) & (obstacle_surface_dist > 0.1)
+        # newly_passed = passed & (~self.obstacle_passed)
+        # self.obstacle_passed |= passed
+        # obstacle_pass_reward = newly_passed.float().sum(dim=1) * 5.0
+        # 障害物通過判定
+        relative_pos = root_pos_w[:, None, :2] - obstacle_pos
+        forward_dist = torch.sum(relative_pos * goal_dir_w[:, None, :], dim=-1)
+        passed = forward_dist > 0.25
+        newly_passed = passed & (~self.obstacle_passed)
+        self.obstacle_passed |= passed
+        obstacle_pass_reward = newly_passed.float().sum(dim=1) * 5.0
+        #  障害物前回転報酬
+        root_ang_vel = self.robot.data.root_ang_vel_w
+        # 障害物への接近速度
+        obstacle_vec = obstacle_pos - root_pos_w[:, None, :2]
+        obstacle_dist = torch.norm(obstacle_vec, dim=-1)
+        obstacle_dir = obstacle_vec / (obstacle_dist.unsqueeze(-1) + 1e-5)
+        obstacle_approach_speed = torch.sum(root_lin_vel[:, None, :2] * obstacle_dir, dim=-1)
+        min_obstacle_approach_speed = obstacle_approach_speed.max(dim=1).values
+        # 障害物が前方にあるか
+        forward_dist = torch.sum(obstacle_vec * goal_dir_w[:, None, :], dim=-1)
+        front_obstacle = ((forward_dist > 0.0) & (forward_dist < 1.5)).any(dim=1)
+        # 旋回しているか
+        turning = torch.abs(root_ang_vel[:, 2]) > 0.1
+        # 障害物への接近速度が減っているか
+        avoiding = min_obstacle_approach_speed < 0.0
+        # 障害物回避旋回報酬
+        obstacle_turn_reward = (front_obstacle & turning & avoiding).float() * 0.3
+        # ゴール到達
         goal_reached = self.current_goal_dist < 0.3
         goal_reward = goal_reached.float() * 50.0
+        # 時間ボーナス
         time_bonus = goal_reached.float() * (1.0 - self.episode_length_buf / self.max_episode_length) * 10.0
-        # ==========================================
-        # 7. 時間ペナルティ
-        # ==========================================
-        time_penalty = -0.02
 
         # ==========================================
         # 報酬合成
         # ==========================================
         reward = (
-            1.0 * distance_reward
-            # + 0.5 * progress_reward
-            + collision_penalty
-            + collision_forward_penalty
-            + time_bonus
-            # + time_penalty
+            0.1 * progress_reward
+            # + obstacle_penalty
+            # + obstacle_approach_penalty
+            # + collision_penalty
+            + obstacle_turn_reward
+            + obstacle_pass_reward #一個についき5
+            + goal_reward #50
+            + time_bonus #約5
         )
 
         if self.common_step_counter % 1000 == 0:
@@ -389,7 +355,11 @@ class UnicycleEnv(DirectRLEnv):
 
         root_state = self.robot.data.default_root_state[env_ids].clone()
         root_state[:, :3] += self.scene.env_origins[env_ids]
-
+        yaw = torch.empty(len(env_ids), device=self.device).uniform_(-torch.pi, torch.pi)
+        root_state[:, 3] = torch.cos(yaw / 2.0)
+        root_state[:, 4] = 0.0
+        root_state[:, 5] = 0.0
+        root_state[:, 6] = torch.sin(yaw / 2.0)
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
 
@@ -403,7 +373,7 @@ class UnicycleEnv(DirectRLEnv):
         # ], dim=-1)
         self.goal_pos_w[env_ids] = (
             self.scene.env_origins[env_ids, :2]
-            + torch.tensor([5.0, 0.0], device=self.device)
+            + torch.tensor([6.0, 0.0], device=self.device)
         )
 
         # =====================
@@ -430,24 +400,56 @@ class UnicycleEnv(DirectRLEnv):
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
 
         elif self.obstacle_stage == 2:
+            # 障害物2個・robotから2m先に配置
+            robot_pos = self.robot.data.root_pos_w[env_ids, :2]
+            goal_pos = self.goal_pos_w[env_ids, :2]
+            # robot → goal方向
+            direction = goal_pos - robot_pos
+            direction = direction / (torch.norm(direction, dim=-1, keepdim=True) + 1e-5)
+            # robot → goal方向に対して垂直な方向
+            lateral = torch.stack([-direction[:, 1], direction[:, 0]], dim=-1)
+            # robotから2m先を基準にする
+            mid_pos = robot_pos + direction * 2.5
+            # 障害物1：前後-0.3、左右+0.4
+            obstacle1_pos = mid_pos + direction * (-1.5) + lateral * 0.4
+            # 障害物2：前後+0.3、左右-0.4
+            obstacle2_pos = mid_pos + direction * 1.5 + lateral * (-0.4)
+            obstacle1_state = self.obstacle1.data.default_root_state[env_ids].clone()
+            obstacle1_state[:, :2] = obstacle1_pos
+            obstacle1_state[:, 2] = 0.25
+            self.obstacle1.write_root_pose_to_sim(obstacle1_state[:, :7], env_ids)
+            obstacle2_state = self.obstacle2.data.default_root_state[env_ids].clone()
+            obstacle2_state[:, :2] = obstacle2_pos
+            obstacle2_state[:, 2] = 0.25
+            self.obstacle2.write_root_pose_to_sim(obstacle2_state[:, :7], env_ids)
+            # 障害物3は使用しない
+            obstacle3_state = self.obstacle3.data.default_root_state[env_ids].clone()
+            obstacle3_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
+            self.obstacle3.write_root_pose_to_sim(obstacle3_state[:, :7], env_ids)
+
+        elif self.obstacle_stage == 3:
             obstacle1_state = self.obstacle1.data.default_root_state[env_ids].clone()
             obstacle1_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([2.5, 0.0, 0.25], device=self.device)
             self.obstacle1.write_root_pose_to_sim(obstacle1_state[:, :7], env_ids)
-            y_size = torch.empty(len(env_ids), device=self.device).uniform_(0.5, 3.0)
+            obstacle_radius = torch.empty(
+                len(env_ids),
+                device=self.device,
+            ).uniform_(0.25, 0.75)
             for i, env_id in enumerate(env_ids):
                 prim_path = f"/World/envs/env_{env_id.item()}/Obstacle1"
                 prim = self.sim.stage.GetPrimAtPath(prim_path)
                 xform = UsdGeom.Xformable(prim)
                 for op in xform.GetOrderedXformOps():
                     if op.GetOpType() == UsdGeom.XformOp.TypeScale:
-                        op.Set((1.0, y_size[i].item() / 0.5, 1.0))
+                        scale = obstacle_radius[i].item() / self.cfg.obstacle1.spawn.radius
+                        op.Set((scale, scale, 1.0))
                         break
             for obstacle in [self.obstacle2, self.obstacle3]:
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
 
-        elif self.obstacle_stage == 3:
+        elif self.obstacle_stage == 4:
             # 障害物1個・ランダム位置
             pos1 = torch.zeros((num_envs, 3), device=self.device)
             pos1[:, 0] = torch.empty(num_envs, device=self.device).uniform_(-3.5, 3.5)
@@ -461,9 +463,9 @@ class UnicycleEnv(DirectRLEnv):
                 obstacle_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
 
-        elif self.obstacle_stage == 4:
+        elif self.obstacle_stage == 5:
             # 障害物3個・ランダム位置
-            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3]:
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3, self.obstacle_long]:
                 pos = torch.zeros((num_envs, 3), device=self.device)
                 pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(-3.5, 3.5)
                 pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-3.5, 3.5)
@@ -471,3 +473,15 @@ class UnicycleEnv(DirectRLEnv):
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+
+        elif self.obstacle_stage == 6:
+            # 横長障害物1個・固定位置
+            obstacle_long_state = self.obstacle_long.data.default_root_state[env_ids].clone()
+            obstacle_long_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([2.5, 0.0, 0.25], device=self.device)
+            self.obstacle_long.write_root_pose_to_sim(obstacle_long_state[:, :7], env_ids)
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3]:
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+
+        self.obstacle_passed[env_ids] = False

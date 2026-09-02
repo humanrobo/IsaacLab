@@ -50,10 +50,23 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
 
     # robot (ヒューマノイドの設定を外し、キューブ等のRigidObjectCfgに置き換え)
 # robot
+    # robot: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="/World/envs/env_.*/Robot",
+    #     spawn=sim_utils.CuboidCfg(
+    #         size=(0.5, 0.5, 0.5),  # キューブのサイズ（例: 0.5m四方）
+    #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.4, 0.8)),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(0.0, 0.0, 0.25),
+    #     ),
+    # )
     robot: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Robot",
-        spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),  # キューブのサイズ（例: 0.5m四方）
+        spawn=sim_utils.CylinderCfg(
+            radius=0.25,
+            height=0.5,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.4, 0.8)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
             collision_props=sim_utils.CollisionPropertiesCfg(),
@@ -66,7 +79,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle1 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle1",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 3.0, 0.5),
+            size=(0.5, 0.5, 0.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -80,7 +93,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle2 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle2",
         spawn=sim_utils.CuboidCfg(
-            size=(3.0, 0.5, 0.5),
+            size=(0.5, 0.5, 0.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -94,7 +107,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle3 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle3",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 3.0, 0.5),
+            size=(0.5, 0.5, 0.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -104,6 +117,63 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             pos=(2.5, 0.8, 0.25),
         ),
     )
+    obstacle_long = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/Obstaclelong",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 2.0, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.8, 0.25),
+        ),
+    )
+    # obstacle1 = RigidObjectCfg(
+    #     prim_path="/World/envs/env_.*/Obstacle1",
+    #     spawn=sim_utils.CylinderCfg(
+    #         radius=0.5,
+    #         height=0.5,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=True,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(2.5, -0.8, 0.25),
+    #     ),
+    # )
+
+    # obstacle2 = RigidObjectCfg(
+    #     prim_path="/World/envs/env_.*/Obstacle2",
+    #     spawn=sim_utils.CylinderCfg(
+    #         radius=0.125,
+    #         height=0.5,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=True,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(2.5, 0.0, 0.25),
+    #     ),
+    # )
+
+    # obstacle3 = RigidObjectCfg(
+    #     prim_path="/World/envs/env_.*/Obstacle3",
+    #     spawn=sim_utils.CylinderCfg(
+    #         radius=0.5,
+    #         height=0.5,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=True,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(2.5, 0.8, 0.25),
+    #     ),
+    # )
 
     camera = CameraCfg(
         prim_path="/World/envs/env_.*/Robot/Camera",

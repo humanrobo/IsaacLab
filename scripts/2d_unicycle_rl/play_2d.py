@@ -51,9 +51,8 @@ class Unicycle2D:
         self.map_resolution=0.125
         self.map_size_px=80
         self.robot_radius=0.25
-        self.reset()
 
-    def reset(self):
+    def reset(self,stage=0):
         self.robot_pos=torch.zeros(2,device=self.device)
         self.robot_yaw=torch.empty((),device=self.device).uniform_(-math.pi,math.pi)
         self.prev_v=torch.tensor(0.0,device=self.device)
@@ -66,6 +65,44 @@ class Unicycle2D:
             torch.empty((),device=self.device).uniform_(1.0,7.0),
             torch.empty((),device=self.device).uniform_(0.5,2.0)
         ],device=self.device)
+        if stage==0:
+            self.robot_pos[:]=torch.tensor([0.0,0.0],device=self.device)
+            self.robot_yaw.fill_(0.0)
+            self.goal_pos[:]=torch.tensor([6.0,0.0],device=self.device)
+            self.obstacle_pos[:]=torch.tensor([100.0,100.0],device=self.device)
+            self.obstacle_size[:]=torch.tensor([0.25,0.25],device=self.device)
+        elif stage==1:
+            self.robot_pos[:]=torch.tensor([0.0,0.0],device=self.device)
+            self.robot_yaw.fill_(0.0)
+            self.goal_pos[:]=torch.tensor([6.0,0.0],device=self.device)
+            self.obstacle_pos[:]=torch.tensor([3.0,0.0],device=self.device)
+            self.obstacle_size[:]=torch.tensor([0.25,0.25],device=self.device)
+        elif stage==2:
+            self.robot_pos[:]=torch.tensor([0.0,0.0],device=self.device)
+            self.robot_yaw.fill_(0.0)
+            self.goal_pos[:]=torch.tensor([6.0,0.0],device=self.device)
+            self.obstacle_pos[:]=torch.tensor([3.0,0.0],device=self.device)
+            self.obstacle_size[:]=torch.tensor([0.25,0.25],device=self.device)
+        elif stage==3:
+            self.robot_pos[:]=torch.tensor([0.0,0.0],device=self.device)
+            self.robot_yaw.fill_(0.0)
+            self.goal_pos[:]=torch.tensor([6.0,0.0],device=self.device)
+            self.obstacle_pos[:]=torch.tensor([3.0,0.0],device=self.device)
+            self.obstacle_size[:]=torch.tensor([3.0,1.0],device=self.device)
+        elif stage==4:
+            self.robot_pos[:]=torch.tensor([0.0,0.0],device=self.device)
+            self.robot_yaw.fill_(0.0)
+            self.goal_pos[:]=torch.tensor([6.0,0.0],device=self.device)
+            self.obstacle_pos[:]=torch.tensor([3.0,0.0],device=self.device)
+            self.obstacle_size[:]=torch.tensor([3.0,1.0],device=self.device)
+            self.goal_pos[0]=torch.empty((),device=self.device).uniform_(2.0,6.0)
+            self.goal_pos[1]=torch.empty((),device=self.device).uniform_(-4.0,4.0)
+        if stage>=2:
+            self.obstacle_pos[0]=torch.empty((),device=self.device).uniform_(1.5,4.5)
+            self.obstacle_pos[1]=torch.empty((),device=self.device).uniform_(-3.0,3.0)
+        if stage>=3:
+            self.obstacle_size[0]=torch.empty((),device=self.device).uniform_(1.0,7.0)
+            self.obstacle_size[1]=torch.empty((),device=self.device).uniform_(0.5,2.0)
         self.prev_goal_dist=self.goal_distance()
         print("robot:",self.robot_pos.cpu().numpy())
         print("goal:",self.goal_pos.cpu().numpy())
@@ -201,6 +238,7 @@ def draw(ax,env,trajectory,step):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--checkpoint",type=str,required=True)
+    parser.add_argument("--stage",type=int,choices=[0,1,2,3,4],required=True)
     args=parser.parse_args()
     print("Loading policy...")
     policy=Policy().to(DEVICE)
@@ -209,12 +247,12 @@ def main():
     policy.eval()
     print(f"Loaded: {args.checkpoint}")
     env=Unicycle2D(DEVICE)
-    env.reset()
-    env.robot_pos[:]=torch.tensor([0.0,0.0],device=env.device)
-    env.robot_yaw.fill_(0.0)
-    env.goal_pos[:]=torch.tensor([3.0,3.0],device=env.device)
-    env.obstacle_pos[:]=torch.tensor([6.0,0.0],device=env.device)
-    env.obstacle_size[:]=torch.tensor([1.0,2.0],device=env.device)
+    env.reset(stage=args.stage)
+    # env.robot_pos[:]=torch.tensor([0.0,0.0],device=env.device)
+    # env.robot_yaw.fill_(0.0)
+    # env.goal_pos[:]=torch.tensor([3.0,3.0],device=env.device)
+    # env.obstacle_pos[:]=torch.tensor([6.0,0.0],device=env.device)
+    # env.obstacle_size[:]=torch.tensor([1.0,2.0],device=env.device)
     obs=env.get_observations()
     trajectory=[
         env.robot_pos.detach().cpu().numpy().copy()
