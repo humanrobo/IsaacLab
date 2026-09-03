@@ -6,6 +6,10 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import omni.ui as ui
 import omni.kit.app
+from isaaclab.utils.math import (
+    convert_camera_frame_orientation_convention,
+    matrix_from_quat,
+)
 
 class HeightMapGenerator:
     def __init__(
@@ -181,7 +185,7 @@ class HeightMapGenerator:
         hm = height_map[0]
         hm_np = hm.detach().cpu().numpy().copy()
         robot_pos_np = robot_pos[0].detach().cpu().numpy()
-        hm_np = self.add_robot_marker(hm_np)
+        # hm_np = self.add_robot_marker(hm_np)
         texture = self.heightmap_to_texture(hm_np)
         texture_path = f"/tmp/heightmap_gui_{self.gui_counter}.png"
         with open(texture_path, "wb") as f:
@@ -222,6 +226,81 @@ class HeightMapGenerator:
         height_maps = torch.stack(height_maps)
         #ロボット回転に追従してヒートマップも回転
         height_maps = self.rotate_to_robot_frame(height_maps, robot_yaw)
+        if self.gui_enabled:
+            self.update_gui(height_maps, robot_pos)
+            
+        return height_maps
+
+    # ================================================================
+    # Generateカメラで
+    # ================================================================
+    def generate_from_depth(self, depth, camera, robot_pos, robot_yaw):
+        N = depth.shape[0]
+        device = depth.device
+        depth = depth.squeeze(-1)
+        scale = 4
+        depth = depth[:, ::scale, ::scale]
+        camera_positions, camera_quats_gl = camera._view.get_world_poses()
+        camera_quats_ros = convert_camera_frame_orientation_convention(
+            camera_quats_gl,
+            origin="opengl",
+            target="ros",
+        )
+        height_maps = []
+        for env_id in range(N):
+            d = depth[env_id]
+            cam_pos = camera_positions[env_id]
+            cam_quat = camera_quats_ros[env_id]
+            fx = camera.data.intrinsic_matrices[env_id][0, 0] / scale
+            fy = camera.data.intrinsic_matrices[env_id][1, 1] / scale
+            cx = camera.data.intrinsic_matrices[env_id][0, 2] / scale
+            cy = camera.data.intrinsic_matrices[env_id][1, 2] / scale
+            H, W = d.shape
+            u, v = torch.meshgrid(
+                torch.arange(W, device=device),
+                torch.arange(H, device=device),
+                indexing="xy",
+            )
+            valid = (
+                torch.isfinite(d)
+                & (d > 0.0)
+                & (d < 10.0)
+            )
+            z = torch.where(valid, d, torch.zeros_like(d))
+            x = (u - cx) * z / fx
+            y = (v - cy) * z / fy
+            points_cam = torch.stack([x, y, z], dim=-1)
+            R = matrix_from_quat(cam_quat)
+            points_world = (R @ points_cam.reshape(-1, 3).T).T + cam_pos
+            points_world = points_world.reshape(H, W, 3)
+            xmin = robot_pos[env_id, 0] - self.map_size / 2.0
+            ymin = robot_pos[env_id, 1] - self.map_size / 2.0
+            valid_mask = (
+                torch.isfinite(points_world).all(dim=-1)
+                & (points_world[..., 2] > -0.1)
+                & (points_world[..., 2] < 3.0)
+                & (points_world[..., 0] >= xmin)
+                & (points_world[..., 0] < xmin + self.map_size)
+                & (points_world[..., 1] >= ymin)
+                & (points_world[..., 1] < ymin + self.map_size)
+            )
+            points_world = points_world[valid_mask]
+            height_map = self.create_height_map(
+                points_world,
+                xmin,
+                ymin,
+            )
+            height_map = F.conv2d(
+                height_map.unsqueeze(0).unsqueeze(0),
+                self.gaussian_kernel,
+                padding=self.kernel_size // 2,
+            ).squeeze(0).squeeze(0)
+            height_maps.append(height_map)
+        height_maps = torch.stack(height_maps)
+        height_maps = self.rotate_to_robot_frame(
+            height_maps,
+            robot_yaw,
+        )
         if self.gui_enabled:
             self.update_gui(height_maps, robot_pos)
             

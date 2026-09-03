@@ -57,10 +57,14 @@ class UnicycleEnv(DirectRLEnv):
         # 色を赤色などに変更したい場合（オプション）
         # marker_cfg.markers["sphere"].visual_material.diffuse_color = (1.0, 0.0, 0.0)
         self.goal_marker = VisualizationMarkers(marker_cfg)
+        front_marker_cfg = SPHERE_MARKER_CFG.copy()
+        front_marker_cfg.prim_path = "/Visuals/RobotFrontMarker"
+        front_marker_cfg.markers["sphere"].scale = (0.15, 0.15, 0.15)
+        self.front_marker = VisualizationMarkers(front_marker_cfg)
         # ==========================================
         # 障害物のサイズ
         # ==========================================
-        self.obstacle_stage = 5
+        self.obstacle_stage = 2
         # self.obstacle_radius = self.cfg.obstacle1.spawn.radius
         # self.obstacle_height = self.cfg.obstacle1.spawn.height
         # ==========================================
@@ -69,12 +73,13 @@ class UnicycleEnv(DirectRLEnv):
         self.heightmap_generator = HeightMapGenerator(
             resolution=0.1,
             map_size=8.0,
+            gui_enabled=True,
             device=self.device,
         )
         self.ray_heightmap_generator = RayHeightmapGenerator(
             map_size=8.0,
             output_size=80,
-            gui_enabled=True,
+            gui_enabled=False,
             gui_update_interval=10,
         )
 
@@ -82,8 +87,8 @@ class UnicycleEnv(DirectRLEnv):
         # キューブ（RigidObject）をロボットとしてスポーン
         # ※ cfg.robot にキューブのプリミティブ設定またはUSDパスが指定されている想定
         self.robot = RigidObject(self.cfg.robot)
-        self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-        # self.camera = Camera(self.cfg.camera)
+        # self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
+        self.camera = Camera(self.cfg.camera)
         self.obstacle1 = RigidObject(self.cfg.obstacle1)
         self.obstacle2 = RigidObject(self.cfg.obstacle2)
         self.obstacle3 = RigidObject(self.cfg.obstacle3)
@@ -103,8 +108,8 @@ class UnicycleEnv(DirectRLEnv):
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         # シーンに剛体として登録
         self.scene.rigid_objects["robot"] = self.robot
-        self.scene.sensors["ray_caster"] = self.ray_caster
-        # self.scene.sensors["camera"] = self.camera
+        # self.scene.sensors["ray_caster"] = self.ray_caster
+        self.scene.sensors["camera"] = self.camera
         self.scene.rigid_objects["obstacle1"] = self.obstacle1
         self.scene.rigid_objects["obstacle2"] = self.obstacle2
         self.scene.rigid_objects["obstacle3"] = self.obstacle3
@@ -181,6 +186,15 @@ class UnicycleEnv(DirectRLEnv):
         heading_cos = torch.cos(heading_error)
         #endregion
 
+        front_offset = 0.8
+        front_marker_pos = torch.stack([
+            root_pos_w[:, 0] + front_offset * torch.cos(robot_yaw),
+            root_pos_w[:, 1] + front_offset * torch.sin(robot_yaw),
+            root_pos_w[:, 2] + 0.2 * torch.ones(self.num_envs, device=self.device),
+        ], dim=-1)
+
+        self.front_marker.visualize(front_marker_pos, marker_quat)
+
         # ゴールまでのローカル相対座標（キューブ基準のX, Y）
         q_yaw_inv = quat_conjugate(yaw_quat(root_rot_w))
         goal_vec_local = quat_apply(
@@ -190,6 +204,8 @@ class UnicycleEnv(DirectRLEnv):
 
         # ローカル速度への変換
         local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
+        # print("local_lin_vel:", local_lin_vel[0].detach().cpu().numpy())
+        # print("yaw:", robot_yaw[0].item())
         local_ang_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_ang_vel_w)
         # obstacle_positions = torch.stack(
         #     [
@@ -205,17 +221,24 @@ class UnicycleEnv(DirectRLEnv):
         #     obstacle_positions,
         #     self.obstacle_size,
         # )
-        # print("height_map shape:", height_map.shape)
+        depth = self.camera.data.output["distance_to_image_plane"]
+        height_map = self.heightmap_generator.generate_from_depth(
+            depth,
+            self.camera,
+            root_pos_w,
+            robot_yaw,
+        )
+        # # print("height_map shape:", height_map.shape)
         # print("height_map min:", height_map.min().item())
         # print("height_map max:", height_map.max().item())
         # height_map = height_map.flatten(start_dim=1)
-        # height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
+        height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
 
-        ray_data = self.scene.sensors["ray_caster"].data
-        ray_hits_w = ray_data.ray_hits_w
-        ray_heightmap = self.ray_heightmap_generator.generate(
-            ray_hits_w
-        )
+        # ray_data = self.scene.sensors["ray_caster"].data
+        # ray_hits_w = ray_data.ray_hits_w
+        # ray_heightmap = self.ray_heightmap_generator.generate(
+        #     ray_hits_w
+        # )
         # print("ray_heightmap:", ray_heightmap.shape)
 
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
@@ -231,11 +254,14 @@ class UnicycleEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": ray_heightmap}}
+        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": height_map}}
 
     def _get_rewards(self) -> torch.Tensor:
         root_pos_w = self.robot.data.root_pos_w
         root_lin_vel = self.robot.data.root_lin_vel_w
+        root_lin_vel_w = self.robot.data.root_lin_vel_w
+        root_rot_w = self.robot.data.root_quat_w
+        local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
         # ==========================================
         # 障害物の中心位置
         obstacle_pos = torch.stack([
@@ -305,6 +331,8 @@ class UnicycleEnv(DirectRLEnv):
         goal_reward = goal_reached.float() * 50.0
         # 時間ボーナス
         time_bonus = goal_reached.float() * (1.0 - self.episode_length_buf / self.max_episode_length) * 10.0
+        #前進速度報酬
+        forward_reward = 0.1 * torch.clamp(local_lin_vel[:, 0], min=0.0)
 
         # ==========================================
         # 報酬合成
@@ -318,6 +346,7 @@ class UnicycleEnv(DirectRLEnv):
             + obstacle_pass_reward #一個についき5
             + goal_reward #50
             + time_bonus #約5
+            + forward_reward
         )
 
         if self.common_step_counter % 1000 == 0:
@@ -355,7 +384,8 @@ class UnicycleEnv(DirectRLEnv):
 
         root_state = self.robot.data.default_root_state[env_ids].clone()
         root_state[:, :3] += self.scene.env_origins[env_ids]
-        yaw = torch.empty(len(env_ids), device=self.device).uniform_(-torch.pi, torch.pi)
+        # yaw = torch.empty(len(env_ids), device=self.device).uniform_(-torch.pi, torch.pi)
+        yaw = torch.zeros(len(env_ids), device=self.device)
         root_state[:, 3] = torch.cos(yaw / 2.0)
         root_state[:, 4] = 0.0
         root_state[:, 5] = 0.0
@@ -384,7 +414,7 @@ class UnicycleEnv(DirectRLEnv):
         if self.obstacle_stage == 0:
             # 障害物なし
             far_away = 100.0
-            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3]:
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3, self.obstacle_long]:
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([far_away, 0.0, 0.25], device=self.device)
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
@@ -426,6 +456,9 @@ class UnicycleEnv(DirectRLEnv):
             obstacle3_state = self.obstacle3.data.default_root_state[env_ids].clone()
             obstacle3_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
             self.obstacle3.write_root_pose_to_sim(obstacle3_state[:, :7], env_ids)
+            obstaclelong_state = self.obstacle_long.data.default_root_state[env_ids].clone()
+            obstaclelong_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([100.0, 0.0, 0.25], device=self.device)
+            self.obstacle_long.write_root_pose_to_sim(obstaclelong_state[:, :7], env_ids)
 
         elif self.obstacle_stage == 3:
             obstacle1_state = self.obstacle1.data.default_root_state[env_ids].clone()

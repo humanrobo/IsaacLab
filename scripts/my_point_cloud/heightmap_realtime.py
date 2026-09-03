@@ -110,8 +110,8 @@ def define_sensor() -> Camera:
     camera_cfg = CameraCfg(
         prim_path="/World/Objects/CameraTracker/CameraSensor",  # ← ワイルドカ
         update_period=0,
-        height=480,
-        width=640,
+        height=32,
+        width=32,
         data_types=[
             "rgb",
             "distance_to_image_plane",
@@ -395,8 +395,10 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         device=sim.device,
     )
 
-    camera_positions = torch.tensor([[2.5, 2.5, 2.5]], device=sim.device)
-    camera_targets = torch.tensor([[0.0, 0.0, 0.0]], device=sim.device)
+    # camera_positions = torch.tensor([[2.5, 2.5, 2.5]], device=sim.device)
+    # camera_targets = torch.tensor([[0.0, 0.0, 0.0]], device=sim.device)
+    camera_positions = torch.tensor([[2.5, 0.0, 1.0]], device=sim.device)
+    camera_targets = torch.tensor([[0.0, 0.0, 1.0]], device=sim.device)
     camera.set_world_poses_from_view(camera_positions, camera_targets)
 
     camera_index = 0
@@ -408,8 +410,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         pc_markers = VisualizationMarkers(cfg)
 
     # マップのサイズ（固定）
-    resolution = 0.025
-    map_size = 8.0  # マップの一辺の長さ（8m四方）
+    resolution = 0.05
+    map_size = 3.2  # マップの一辺の長さ（8m四方）
     map_W = int(map_size / resolution)
     map_H = int(map_size / resolution)
 
@@ -702,11 +704,11 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # ============================================================
         # ⑬ Camera marker
         # ============================================================
-        height_map = add_camera_marker(
-                    height_map, 
-                    camera_positions[camera_index].cpu().numpy(), 
-                    xmin, ymin, resolution, map_W, map_H
-                )
+        # height_map = add_camera_marker(
+        #             height_map, 
+        #             camera_positions[camera_index].cpu().numpy(), 
+        #             xmin, ymin, resolution, map_W, map_H
+        #         )
         t13 = time.perf_counter()
 
         # ============================================================
