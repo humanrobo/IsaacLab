@@ -96,12 +96,14 @@ class HeightMapGenerator:
     # HeightMap -> colored texture
     # ================================================================
     def heightmap_to_texture(self, height_map):
-        hmin = height_map.min()
-        hmax = height_map.max()
-        if hmax - hmin < 1e-6:
-            norm = np.zeros_like(height_map)
-        else:
-            norm = (height_map - hmin) / (hmax - hmin)
+        # hmin = height_map.min()
+        # hmax = height_map.max()
+        # if hmax - hmin < 1e-6:
+        #     norm = np.zeros_like(height_map)
+        # else:
+        #     norm = (height_map - hmin) / (hmax - hmin)
+        hm = np.clip(height_map, 0.0, 0.5)
+        norm = hm / 0.5
         rgb = plt.get_cmap("jet")(norm)
         rgb = (rgb[:, :, :3] * 255).astype(np.uint8)
         img = Image.fromarray(rgb, mode="RGB")
@@ -276,7 +278,8 @@ class HeightMapGenerator:
             xmin = robot_pos[env_id, 0] - self.map_size / 2.0
             ymin = robot_pos[env_id, 1] - self.map_size / 2.0
             valid_mask = (
-                torch.isfinite(points_world).all(dim=-1)
+                valid
+                & torch.isfinite(points_world).all(dim=-1)
                 & (points_world[..., 2] > -0.1)
                 & (points_world[..., 2] < 3.0)
                 & (points_world[..., 0] >= xmin)
@@ -299,7 +302,7 @@ class HeightMapGenerator:
         height_maps = torch.stack(height_maps)
         height_maps = self.rotate_to_robot_frame(
             height_maps,
-            robot_yaw,
+            robot_yaw + torch.pi / 2,
         )
         if self.gui_enabled:
             self.update_gui(height_maps, robot_pos)

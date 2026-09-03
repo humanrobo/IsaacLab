@@ -24,7 +24,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
 
     # spaces (ユニサイクルモデルの入力・出力に合わせて変更)
     # 例: 観測空間 = local_lin_vel(3) + local_ang_vel(3) + height(1) + heading_sin(1) + heading_cos(1) + goal_vec_local(2) = 11次元
-    observation_space = {"policy_obs": 11, "ray_heightmap": [1, 80, 80]}  # map_size=8.0, resolution=0.1 → 80x80
+    observation_space = {"policy_obs": 11, "ray_heightmap": [1, 64, 64]}  # map_size=8.0, resolution=0.1 → 80x80
     action_space = 2
     state_space = 0
 
@@ -201,8 +201,8 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             pos=(0.0, 0.0, 2.0),
         ),
         pattern_cfg=patterns.GridPatternCfg(
-            resolution=0.1,
-            size=(8.0, 8.0),
+            resolution=0.05,
+            size=(3.2, 3.2),
             direction=(0.0, 0.0, -1.0),
             ordering="yx",
         ),

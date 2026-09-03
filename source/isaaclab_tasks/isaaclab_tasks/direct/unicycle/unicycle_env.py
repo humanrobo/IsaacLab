@@ -71,15 +71,15 @@ class UnicycleEnv(DirectRLEnv):
         # ヒートマップ作成
         # ==========================================
         self.heightmap_generator = HeightMapGenerator(
-            resolution=0.1,
-            map_size=8.0,
-            gui_enabled=True,
+            resolution=0.05,
+            map_size=3.2,
+            gui_enabled=False,
             device=self.device,
         )
         self.ray_heightmap_generator = RayHeightmapGenerator(
-            map_size=8.0,
-            output_size=80,
-            gui_enabled=False,
+            map_size=3.2,
+            output_size=64,
+            gui_enabled=True,
             gui_update_interval=10,
         )
 
@@ -87,8 +87,8 @@ class UnicycleEnv(DirectRLEnv):
         # キューブ（RigidObject）をロボットとしてスポーン
         # ※ cfg.robot にキューブのプリミティブ設定またはUSDパスが指定されている想定
         self.robot = RigidObject(self.cfg.robot)
-        # self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-        self.camera = Camera(self.cfg.camera)
+        self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
+        # self.camera = Camera(self.cfg.camera)
         self.obstacle1 = RigidObject(self.cfg.obstacle1)
         self.obstacle2 = RigidObject(self.cfg.obstacle2)
         self.obstacle3 = RigidObject(self.cfg.obstacle3)
@@ -108,8 +108,8 @@ class UnicycleEnv(DirectRLEnv):
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         # シーンに剛体として登録
         self.scene.rigid_objects["robot"] = self.robot
-        # self.scene.sensors["ray_caster"] = self.ray_caster
-        self.scene.sensors["camera"] = self.camera
+        self.scene.sensors["ray_caster"] = self.ray_caster
+        # self.scene.sensors["camera"] = self.camera
         self.scene.rigid_objects["obstacle1"] = self.obstacle1
         self.scene.rigid_objects["obstacle2"] = self.obstacle2
         self.scene.rigid_objects["obstacle3"] = self.obstacle3
@@ -121,23 +121,33 @@ class UnicycleEnv(DirectRLEnv):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
         self.actions = torch.clamp(actions, -1.0, 1.0)
 
+    # def _apply_action(self):
+    #     # ユニサイクルモデルへの速度指令（Velocities）を直接適用
+    #     v = self.actions[:, 0] * self.action_scale_lin
+    #     omega = self.actions[:, 1] * self.action_scale_ang
+
+    #     # 現在の向き（yaw）を取得
+    #     root_rot_w = self.robot.data.root_quat_w
+    #     _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
+
+    #     # 2次元平面でのワールド速度成分へ変換 (vx = v * cos(yaw), vy = v * sin(yaw))
+    #     vx = v * torch.cos(robot_yaw)
+    #     vy = v * torch.sin(robot_yaw)
+
+    #     # 根元（Root）の速度を設定 [vx, vy, vz=0] および [omega_x=0, omega_y=0, omega_z=omega]
+    #     root_lin_vel = torch.stack([vx, vy, torch.zeros_like(vx)], dim=-1)
+    #     root_ang_vel = torch.stack([torch.zeros_like(omega), torch.zeros_like(omega), omega], dim=-1)
+
+    #     self.robot.write_root_com_velocity_to_sim(
+    #         torch.cat([root_lin_vel, root_ang_vel], dim=-1)
+    #     )
     def _apply_action(self):
-        # ユニサイクルモデルへの速度指令（Velocities）を直接適用
-        v = self.actions[:, 0] * self.action_scale_lin
-        omega = self.actions[:, 1] * self.action_scale_ang
-
-        # 現在の向き（yaw）を取得
-        root_rot_w = self.robot.data.root_quat_w
-        _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
-
-        # 2次元平面でのワールド速度成分へ変換 (vx = v * cos(yaw), vy = v * sin(yaw))
-        vx = v * torch.cos(robot_yaw)
-        vy = v * torch.sin(robot_yaw)
-
-        # 根元（Root）の速度を設定 [vx, vy, vz=0] および [omega_x=0, omega_y=0, omega_z=omega]
-        root_lin_vel = torch.stack([vx, vy, torch.zeros_like(vx)], dim=-1)
-        root_ang_vel = torch.stack([torch.zeros_like(omega), torch.zeros_like(omega), omega], dim=-1)
-
+        vx = -1.0
+        vy = 0.0
+        vz = torch.zeros(self.num_envs, device=self.device)
+        omega = torch.zeros(self.num_envs, device=self.device)
+        root_lin_vel = torch.stack([torch.full_like(vz, vx), torch.full_like(vz, vy), vz], dim=-1)
+        root_ang_vel = torch.stack([omega, omega, omega], dim=-1)
         self.robot.write_root_com_velocity_to_sim(
             torch.cat([root_lin_vel, root_ang_vel], dim=-1)
         )
@@ -221,24 +231,24 @@ class UnicycleEnv(DirectRLEnv):
         #     obstacle_positions,
         #     self.obstacle_size,
         # )
-        depth = self.camera.data.output["distance_to_image_plane"]
-        height_map = self.heightmap_generator.generate_from_depth(
-            depth,
-            self.camera,
-            root_pos_w,
-            robot_yaw,
-        )
+        # depth = self.camera.data.output["distance_to_image_plane"]
+        # height_map = self.heightmap_generator.generate_from_depth(
+        #     depth,
+        #     self.camera,
+        #     root_pos_w,
+        #     robot_yaw,
+        # )
         # # print("height_map shape:", height_map.shape)
         # print("height_map min:", height_map.min().item())
         # print("height_map max:", height_map.max().item())
         # height_map = height_map.flatten(start_dim=1)
-        height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
+        # height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
 
-        # ray_data = self.scene.sensors["ray_caster"].data
-        # ray_hits_w = ray_data.ray_hits_w
-        # ray_heightmap = self.ray_heightmap_generator.generate(
-        #     ray_hits_w
-        # )
+        ray_data = self.scene.sensors["ray_caster"].data
+        ray_hits_w = ray_data.ray_hits_w
+        ray_heightmap = self.ray_heightmap_generator.generate(
+            ray_hits_w
+        )
         # print("ray_heightmap:", ray_heightmap.shape)
 
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
@@ -254,7 +264,7 @@ class UnicycleEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": height_map}}
+        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": ray_heightmap}}
 
     def _get_rewards(self) -> torch.Tensor:
         root_pos_w = self.robot.data.root_pos_w

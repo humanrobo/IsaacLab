@@ -126,6 +126,7 @@ class RayHeightmapGenerator:
             ),
             mode="nearest",
         )
+        heightmap = torch.rot90(heightmap, k=2, dims=(2, 3))
 
         # ------------------------------------------------------------
         # UI
@@ -293,9 +294,9 @@ class RayHeightmapGenerator:
         # Robot marker
         # ------------------------------------------------------------
 
-        hm = self.add_robot_marker(
-            hm
-        )
+        # hm = self.add_robot_marker(
+        #     hm
+        # )
 
         # ------------------------------------------------------------
         # Jetカラー化
