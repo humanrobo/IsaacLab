@@ -19,7 +19,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     """Unicycle environment config (cube base model)."""
 
     # env
-    episode_length_s = 15.0
+    episode_length_s = 8.0
     decimation = 2
 
     # spaces (ユニサイクルモデルの入力・出力に合わせて変更)
@@ -127,7 +127,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(2.5, 0.8, 0.25),
+            pos=(2.5, 0.0, 0.25),
         ),
     )
     # obstacle1 = RigidObjectCfg(

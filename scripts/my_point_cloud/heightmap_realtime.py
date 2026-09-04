@@ -110,8 +110,8 @@ def define_sensor() -> Camera:
     camera_cfg = CameraCfg(
         prim_path="/World/Objects/CameraTracker/CameraSensor",  # ← ワイルドカ
         update_period=0,
-        height=32,
-        width=32,
+        height=128,
+        width=128,
         data_types=[
             "rgb",
             "distance_to_image_plane",
@@ -548,7 +548,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
         # region 外れ値処理
         #無効点・異常高さを判定
         valid_mask = (
-                    torch.isfinite(points_world_img).all(dim=-1)
+                    valid
+                    & torch.isfinite(points_world_img).all(dim=-1)
                     & (points_world_img[..., 2] > -0.1)
                     & (points_world_img[..., 2] < 3.0)
                     & (points_world_img[..., 0] >= xmin) 

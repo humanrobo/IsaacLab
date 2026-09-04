@@ -240,7 +240,7 @@ class HeightMapGenerator:
         N = depth.shape[0]
         device = depth.device
         depth = depth.squeeze(-1)
-        scale = 4
+        scale = 2
         depth = depth[:, ::scale, ::scale]
         camera_positions, camera_quats_gl = camera._view.get_world_poses()
         camera_quats_ros = convert_camera_frame_orientation_convention(
@@ -288,16 +288,35 @@ class HeightMapGenerator:
                 & (points_world[..., 1] < ymin + self.map_size)
             )
             points_world = points_world[valid_mask]
-            height_map = self.create_height_map(
-                points_world,
-                xmin,
-                ymin,
-            )
-            height_map = F.conv2d(
-                height_map.unsqueeze(0).unsqueeze(0),
-                self.gaussian_kernel,
-                padding=self.kernel_size // 2,
-            ).squeeze(0).squeeze(0)
+            if points_world.numel() == 0:
+                # print("WARNING: no valid depth points")
+                height_map = torch.zeros(
+                    (self.map_H, self.map_W),
+                    device=device,
+                    dtype=torch.float32,
+                )
+            else:
+                # print("point z max:", points_world[:, 2].max().item())
+                height_map = self.create_height_map(
+                    points_world,
+                    xmin,
+                    ymin,
+                )
+                # original_height_map = height_map.clone()
+                #周囲3セルに最大高さをいれる
+                height_map = F.max_pool2d(
+                    height_map.unsqueeze(0).unsqueeze(0),
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                ).squeeze(0).squeeze(0)
+                height_map = F.conv2d(
+                    height_map.unsqueeze(0).unsqueeze(0),
+                    self.gaussian_kernel,
+                    padding=self.kernel_size // 2,
+                ).squeeze(0).squeeze(0)
+                # height_map = torch.maximum(height_map, original_height_map)
+
             height_maps.append(height_map)
         height_maps = torch.stack(height_maps)
         height_maps = self.rotate_to_robot_frame(
