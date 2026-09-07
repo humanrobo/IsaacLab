@@ -121,44 +121,44 @@ class UnicycleEnv(DirectRLEnv):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
         self.actions = torch.clamp(actions, -1.0, 1.0)
 
-    # def _apply_action(self):
-    #     # ユニサイクルモデルへの速度指令（Velocities）を直接適用
-    #     v = self.actions[:, 0] * self.action_scale_lin
-    #     omega = self.actions[:, 1] * self.action_scale_ang
-
-    #     # 現在の向き（yaw）を取得
-    #     root_rot_w = self.robot.data.root_quat_w
-    #     _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
-
-    #     # 2次元平面でのワールド速度成分へ変換 (vx = v * cos(yaw), vy = v * sin(yaw))
-    #     vx = v * torch.cos(robot_yaw)
-    #     vy = v * torch.sin(robot_yaw)
-
-    #     # 根元（Root）の速度を設定 [vx, vy, vz=0] および [omega_x=0, omega_y=0, omega_z=omega]
-    #     root_lin_vel = torch.stack([vx, vy, torch.zeros_like(vx)], dim=-1)
-    #     root_ang_vel = torch.stack([torch.zeros_like(omega), torch.zeros_like(omega), omega], dim=-1)
-
-    #     self.robot.write_root_com_velocity_to_sim(
-    #         torch.cat([root_lin_vel, root_ang_vel], dim=-1)
-    #     )
     def _apply_action(self):
-        v = torch.full(
-            (self.num_envs,),
-            1.0,
-            device=self.device,
-        )
+        # ユニサイクルモデルへの速度指令（Velocities）を直接適用
+        v = self.actions[:, 0] * self.action_scale_lin
+        omega = self.actions[:, 1] * self.action_scale_ang
 
-        root_lin_vel = torch.stack([
-            v,
-            torch.zeros_like(v),
-            torch.zeros_like(v),
-        ], dim=-1)
+        # 現在の向き（yaw）を取得
+        root_rot_w = self.robot.data.root_quat_w
+        _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
 
-        root_ang_vel = torch.zeros_like(root_lin_vel)
+        # 2次元平面でのワールド速度成分へ変換 (vx = v * cos(yaw), vy = v * sin(yaw))
+        vx = v * torch.cos(robot_yaw)
+        vy = v * torch.sin(robot_yaw)
+
+        # 根元（Root）の速度を設定 [vx, vy, vz=0] および [omega_x=0, omega_y=0, omega_z=omega]
+        root_lin_vel = torch.stack([vx, vy, torch.zeros_like(vx)], dim=-1)
+        root_ang_vel = torch.stack([torch.zeros_like(omega), torch.zeros_like(omega), omega], dim=-1)
 
         self.robot.write_root_com_velocity_to_sim(
             torch.cat([root_lin_vel, root_ang_vel], dim=-1)
         )
+    # def _apply_action(self):
+    #     v = torch.full(
+    #         (self.num_envs,),
+    #         1.0,
+    #         device=self.device,
+    #     )
+
+    #     root_lin_vel = torch.stack([
+    #         v,
+    #         torch.zeros_like(v),
+    #         torch.zeros_like(v),
+    #     ], dim=-1)
+
+    #     root_ang_vel = torch.zeros_like(root_lin_vel)
+
+    #     self.robot.write_root_com_velocity_to_sim(
+    #         torch.cat([root_lin_vel, root_ang_vel], dim=-1)
+    #     )
 
     def _get_observations(self) -> dict:
         # rgb = self.camera.data.output["rgb"][0].cpu().numpy()
@@ -252,7 +252,7 @@ class UnicycleEnv(DirectRLEnv):
         # height_map = height_map.flatten(start_dim=1)
         height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
         # print(f"max_height = {height_map.max().item():.3f} m")
-
+        
         # ray_data = self.scene.sensors["ray_caster"].data
         # ray_hits_w = ray_data.ray_hits_w
         # ray_heightmap = self.ray_heightmap_generator.generate(
@@ -400,6 +400,8 @@ class UnicycleEnv(DirectRLEnv):
             env_ids = self.robot._ALL_INDICES
         self.robot.reset(env_ids)
         super()._reset_idx(env_ids)
+        self.heightmap_generator.reset(env_ids)
+
 
         root_state = self.robot.data.default_root_state[env_ids].clone()
         root_state[:, :3] += self.scene.env_origins[env_ids]

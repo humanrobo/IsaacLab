@@ -358,7 +358,7 @@ class HeightMapGenerator:
             height_maps.append(height_map)
         height_maps = torch.stack(height_maps)
 
-        fov_deg = 25.0
+        fov_deg = 90.0
         ys, xs = torch.meshgrid(
             torch.arange(self.map_H, device=device),
             torch.arange(self.map_W, device=device),
@@ -366,7 +366,7 @@ class HeightMapGenerator:
         )
         x = (xs.float() - self.map_W / 2.0) * self.resolution
         y = (self.map_H / 2.0 - ys.float()) * self.resolution
-        angle = torch.atan2(y, x)
+        angle = torch.atan2(y, -x)
         fov_mask = torch.abs(angle) < (fov_deg * torch.pi / 180.0 / 2.0)
         fov_masks = fov_mask.unsqueeze(0).expand(N, -1, -1)
         if self.prev_height_map is None:
@@ -393,7 +393,7 @@ class HeightMapGenerator:
             # 例：ロボットの向きに合わせて fov_masks 自体も回転させる
             rotated_fov_masks = self.rotate_to_robot_frame(
                 fov_masks.float(), 
-                -robot_yaw,
+                -(robot_yaw - torch.pi / 2),
             ).bool()
             persistent_height_maps = torch.where(
                 rotated_fov_masks,

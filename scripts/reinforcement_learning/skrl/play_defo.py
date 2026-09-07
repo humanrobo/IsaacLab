@@ -60,6 +60,8 @@ parser.add_argument(
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 
+parser.add_argument("--manual", action="store_true")
+
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -84,6 +86,8 @@ import gymnasium as gym
 import skrl
 import torch
 from packaging import version
+import carb
+import omni.appwindow
 
 # check for minimum supported skrl version
 SKRL_VERSION = "2.0.0"
@@ -208,6 +212,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
     print(f"[INFO] Loading model checkpoint from: {resume_path}")
     runner.agent.load(resume_path)
+
+
+    keyboard = omni.appwindow.get_default_app_window().get_keyboard()
+    input_interface = carb.input.acquire_input_interface()
+    pressed_keys = set()
+
+    def keyboard_event(event, *args):
+        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
+            pressed_keys.add(event.input)
+        elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
+            pressed_keys.discard(event.input)
+        return True
+
+    keyboard_sub = input_interface.subscribe_to_keyboard_events(keyboard, keyboard_event)
+
+
     # set agent to evaluation mode
     runner.agent.enable_training_mode(False, apply_to_models=True)
 
@@ -215,30 +235,41 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     obs, _ = env.reset()
     states = env.state()
     timestep = 0
-    # simulate environment
+
     while simulation_app.is_running():
         start_time = time.time()
-
-        # run everything in inference mode
         with torch.inference_mode():
-            # agent stepping
-            outputs = runner.agent.act(obs, states, timestep=0, timesteps=0)
-            # - multi-agent (deterministic) actions
-            if hasattr(env, "possible_agents"):
-                actions = {a: outputs[-1][a].get("mean_actions", outputs[0][a]) for a in env.possible_agents}
-            # - single-agent (deterministic) actions
+            if args_cli.manual:
+                v = 0.0
+                omega = 0.0
+
+                if carb.input.KeyboardInput.W in pressed_keys:
+                    v += 1.0
+                if carb.input.KeyboardInput.S in pressed_keys:
+                    v -= 1.0
+                if carb.input.KeyboardInput.A in pressed_keys:
+                    omega += 1.0
+                if carb.input.KeyboardInput.D in pressed_keys:
+                    omega -= 1.0
+
+                actions = torch.zeros((env.num_envs, 2), device=env.device)
+                actions[:, 0] = v
+                actions[:, 1] = omega
             else:
-                actions = outputs[-1].get("mean_actions", outputs[0])
-            # env stepping
+                outputs = runner.agent.act(obs, states, timestep=0, timesteps=0)
+                if hasattr(env, "possible_agents"):
+                    actions = {a: outputs[-1][a].get("mean_actions", outputs[0][a]) for a in env.possible_agents}
+                else:
+                    actions = outputs[-1].get("mean_actions", outputs[0])
+
             obs, _, _, _, _ = env.step(actions)
             states = env.state()
+
         if args_cli.video:
             timestep += 1
-            # exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
 
-        # time delay for real-time evaluation
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)

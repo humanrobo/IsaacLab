@@ -177,7 +177,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
 
     camera = CameraCfg(
         prim_path="/World/envs/env_.*/Robot/Camera",
-        update_period=1.0,
+        update_period=0.0,
         height=64,
         width=64,
         data_types=["rgb", "distance_to_image_plane"],
@@ -187,7 +187,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
-            pos=(0.5, 0.0, 0),
+            pos=(0.25, 0.0, 0),
             rot=(-0.5, 0.5, -0.5, 0.5),
             convention="ros",
         ),
