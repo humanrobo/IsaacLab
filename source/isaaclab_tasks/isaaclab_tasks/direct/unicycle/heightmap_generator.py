@@ -74,19 +74,26 @@ class HeightMapGenerator:
     # ================================================================
     def rotate_to_robot_frame(self, height_maps, robot_yaw):
         N, H, W = height_maps.shape
+        # 高さマップ上の各画素の正規化座標を作成
+        # x: 横方向、y: 縦方向を [-1, 1] で表す
         y, x = torch.meshgrid(
             torch.linspace(-1.0, 1.0, H, device=height_maps.device),
             torch.linspace(-1.0, 1.0, W, device=height_maps.device),
             indexing="ij",
         )
+        # 全環境分に座標グリッドを複製
         x = x.unsqueeze(0).expand(N, -1, -1)
         y = y.unsqueeze(0).expand(N, -1, -1)
+        # 各環境のロボットのyaw角からsin/cosを計算
         cos_yaw = torch.cos(robot_yaw).view(N, 1, 1)
         sin_yaw = torch.sin(robot_yaw).view(N, 1, 1)
-        # 逆回転
+        # ロボットの向きに合わせるため、座標グリッドを逆回転
+        # 出力画像の各位置に対して、元画像のどの位置を参照するかを計算
         x_src = cos_yaw * x + sin_yaw * y
         y_src = -sin_yaw * x + cos_yaw * y
+        # grid_sample用にx,y座標を最後の次元にまとめる
         grid = torch.stack([x_src, y_src], dim=-1)
+        # 高さマップを回転して、ロボット前方を基準としたマップに変換
         rotated = F.grid_sample(
             height_maps.unsqueeze(1),
             grid,
@@ -94,6 +101,7 @@ class HeightMapGenerator:
             padding_mode="zeros",
             align_corners=True,
         )
+        # 追加したチャンネル次元を削除して[N,H,W]に戻す
         return rotated.squeeze(1)
     
     # ================================================================
@@ -218,21 +226,18 @@ class HeightMapGenerator:
     def shift_height_map(self, height_map, shift_y, shift_x):
         h, w = height_map.shape
         shifted = torch.zeros_like(height_map)
-
         if shift_y >= 0:
             src_y0, src_y1 = shift_y, h
             dst_y0, dst_y1 = 0, h - shift_y
         else:
             src_y0, src_y1 = 0, h + shift_y
             dst_y0, dst_y1 = -shift_y, h
-
         if shift_x >= 0:
             src_x0, src_x1 = shift_x, w
             dst_x0, dst_x1 = 0, w - shift_x
         else:
             src_x0, src_x1 = 0, w + shift_x
             dst_x0, dst_x1 = -shift_x, w
-
         if src_y1 > src_y0 and src_x1 > src_x0:
             shifted[dst_y0:dst_y1, dst_x0:dst_x1] = height_map[
                 src_y0:src_y1,
