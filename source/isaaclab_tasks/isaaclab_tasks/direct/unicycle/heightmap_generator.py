@@ -97,7 +97,7 @@ class HeightMapGenerator:
         rotated = F.grid_sample(
             height_maps.unsqueeze(1),
             grid,
-            mode="bilinear",
+            mode="nearest",
             padding_mode="zeros",
             align_corners=True,
         )
@@ -363,7 +363,7 @@ class HeightMapGenerator:
             height_maps.append(height_map)
         height_maps = torch.stack(height_maps)
 
-        fov_deg = 25.0
+        fov_deg = 30.0
         ys, xs = torch.meshgrid(
             torch.arange(self.map_H, device=device),
             torch.arange(self.map_W, device=device),
@@ -384,10 +384,11 @@ class HeightMapGenerator:
                 dx = robot_pos[env_id, 0] - self.prev_robot_pos[env_id, 0]
                 dy = robot_pos[env_id, 1] - self.prev_robot_pos[env_id, 1]
                 delta_yaw = robot_yaw[env_id] - self.prev_robot_yaw[env_id]
-                prev_map = self.rotate_to_robot_frame(
-                    self.prev_height_map[env_id].unsqueeze(0),
-                    delta_yaw.unsqueeze(0),
-                )[0]
+                prev_map = self.prev_height_map[env_id]
+                # prev_map = self.rotate_to_robot_frame(
+                #     self.prev_height_map[env_id].unsqueeze(0),
+                #     delta_yaw.unsqueeze(0),
+                # )[0]
                 shift_x = torch.round(dx / self.resolution).long()
                 shift_y = torch.round(dy / self.resolution).long()
                 persistent_height_maps[env_id] = self.shift_height_map(
