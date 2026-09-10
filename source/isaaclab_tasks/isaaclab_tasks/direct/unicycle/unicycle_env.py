@@ -82,7 +82,7 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 障害物のサイズ
         # ==========================================
-        self.obstacle_stage = 2
+        self.obstacle_stage = 6
         # self.obstacle_radius = self.cfg.obstacle1.spawn.radius
         # self.obstacle_height = self.cfg.obstacle1.spawn.height
         # ==========================================
@@ -103,7 +103,8 @@ class UnicycleEnv(DirectRLEnv):
 
     def _setup_scene(self):
         self.robot = RigidObject(self.cfg.robot)
-        self.camera = Camera(self.cfg.camera)
+        # self.camera = Camera(self.cfg.camera)
+        self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
         self.obstacle1 = RigidObject(self.cfg.obstacle1)
         self.obstacle2 = RigidObject(self.cfg.obstacle2)
         self.obstacle3 = RigidObject(self.cfg.obstacle3)
@@ -132,7 +133,8 @@ class UnicycleEnv(DirectRLEnv):
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         self.scene.rigid_objects["robot"] = self.robot
-        self.scene.sensors["camera"] = self.camera
+        # self.scene.sensors["camera"] = self.camera
+        self.scene.sensors["ray_caster"] = self.ray_caster
         self.scene.rigid_objects["obstacle1"] = self.obstacle1
         self.scene.rigid_objects["obstacle2"] = self.obstacle2
         self.scene.rigid_objects["obstacle3"] = self.obstacle3
@@ -233,20 +235,27 @@ class UnicycleEnv(DirectRLEnv):
         # ローカル速度への変換
         local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
         local_ang_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_ang_vel_w)
-        depth = self.camera.data.output["distance_to_image_plane"]
-        height_map = self.heightmap_generator.generate_from_depth(
-            depth,
-            self.camera,
-            root_pos_w,
-            robot_yaw,
-        )
-        height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
+        # depth = self.camera.data.output["distance_to_image_plane"]
+        # height_map = self.heightmap_generator.generate_from_depth(
+        #     depth,
+        #     self.camera,
+        #     root_pos_w,
+        #     robot_yaw,
+        # )
+        # height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
 
-        # ray_data = self.scene.sensors["ray_caster"].data
-        # ray_hits_w = ray_data.ray_hits_w
+        ray_data = self.scene.sensors["ray_caster"].data
+        ray_hits_w = ray_data.ray_hits_w
+        print("yaw:", self.robot.data.root_link_quat_w[0])
+        print("ray directions:", self.ray_caster._ray_directions_w[0, :5])
         # ray_heightmap = self.ray_heightmap_generator.generate(
         #     ray_hits_w
         # )
+        ray_heightmap = self.heightmap_generator.generate_from_ray(
+            ray_hits_w,
+            root_pos_w,
+            robot_yaw
+        )
         # print("ray_heightmap:", ray_heightmap.shape)
 
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
@@ -261,7 +270,7 @@ class UnicycleEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": height_map}}
+        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": ray_heightmap}}
 
     def _get_rewards(self) -> torch.Tensor:
         root_pos_w = self.robot.data.root_pos_w
@@ -405,10 +414,13 @@ class UnicycleEnv(DirectRLEnv):
             tqdm.write(
                 f"progress={progress_reward.mean().item():.3f} "
                 f"turn={turn_reward.mean().item():.3f} "
+                f"obstacle={obstacle_penalty.mean().item():.3f} "
+                f"obstacle_approach={obstacle_approach_penalty.mean().item():.3f} "
+                f"collision={collision_penalty.mean().item():.3f} "
                 f"obstacle_turn={obstacle_turn_reward.mean().item():.3f} "
-                f"obstacle_pass=({obstacle_pass_reward.mean().item():.3f} "
+                f"obstacle_pass={obstacle_pass_reward.mean().item():.3f} "
                 f"avoid={avoid_reward.mean().item():.3f} "
-                f"goal=({goal_reward.mean().item():.3f} "
+                f"goal={goal_reward.mean().item():.3f} "
                 f"time={time_bonus.mean().item():.3f} "
             )
 

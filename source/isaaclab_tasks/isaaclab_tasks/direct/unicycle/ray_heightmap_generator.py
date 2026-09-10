@@ -61,63 +61,47 @@ class RayHeightmapGenerator:
     # Generate
     # ================================================================
     def generate(self, ray_hits_w):
-
         # ------------------------------------------------------------
         # ray_hits_w
-        #
         # shape:
         # [num_envs, num_rays, 3]
-        #
-        # 例:
-        # [4096, 81, 3]
+        # 例:[4096, 81, 3]
         # ------------------------------------------------------------
-
         num_envs = ray_hits_w.shape[0]
-
         # ------------------------------------------------------------
         # Z座標だけ取り出す
         # ------------------------------------------------------------
-
         heightmap = ray_hits_w[:, :, 2]
-
         # ------------------------------------------------------------
         # Ray数から正方形サイズを計算
         #
         # 81 -> 9 x 9
         # ------------------------------------------------------------
-
         n = int(heightmap.shape[1] ** 0.5)
-
         if n * n != heightmap.shape[1]:
             raise ValueError(
                 f"Ray count {heightmap.shape[1]} "
                 f"is not a square number"
             )
-
         heightmap = heightmap.reshape(
             num_envs,
             n,
             n,
         )
-
         # ------------------------------------------------------------
         # inf / nan
-        #
         # Rayが何にも当たらなかった場合は inf
         # → 0 にする
         # ------------------------------------------------------------
-
         heightmap = torch.nan_to_num(
             heightmap,
             nan=0.0,
             posinf=0.0,
             neginf=0.0,
         )
-
         # ------------------------------------------------------------
         # 9x9 -> 80x80
         # ------------------------------------------------------------
-
         heightmap = F.interpolate(
             heightmap.unsqueeze(1),
             size=(
@@ -126,19 +110,45 @@ class RayHeightmapGenerator:
             ),
             mode="nearest",
         )
-        heightmap = torch.rot90(heightmap, k=2, dims=(2, 3))
-
+        # ------------------------------------------------------------
+        # Gaussian filter
+        # ------------------------------------------------------------
+        sigma = 1.0
+        kernel_size = 5
+        x = torch.arange(
+            kernel_size,
+            device=heightmap.device,
+            dtype=heightmap.dtype,
+        ) - kernel_size // 2
+        kernel_1d = torch.exp(
+            -(x ** 2) / (2 * sigma ** 2)
+        )
+        kernel_1d /= kernel_1d.sum()
+        kernel_2d = kernel_1d[:, None] * kernel_1d[None, :]
+        kernel_2d = kernel_2d.unsqueeze(0).unsqueeze(0)
+        heightmap = F.conv2d(
+            heightmap,
+            kernel_2d,
+            padding=kernel_size // 2,
+        )
+        # ------------------------------------------------------------
+        # 180度回転
+        # ------------------------------------------------------------
+        heightmap = torch.rot90(
+            heightmap,
+            k=2,
+            dims=(2, 3),
+        )
         # ------------------------------------------------------------
         # UI
         # ------------------------------------------------------------
-
         if self.gui_enabled:
-
             self.update_gui(
                 heightmap
             )
 
         return heightmap
+
 
     # ================================================================
     # HeightMap -> Jetカラー画像

@@ -49,9 +49,11 @@ def grid_pattern(cfg: patterns_cfg.GridPatternCfg, device: str) -> tuple[torch.T
     # store into ray starts
     num_rays = grid_x.numel()
     ray_starts = torch.zeros(num_rays, 3, device=device)
-    ray_starts[:, 0] = grid_x.flatten()
-    ray_starts[:, 1] = grid_y.flatten()
-
+    # ray_starts[:, 0] = grid_x.flatten()
+    # ray_starts[:, 1] = grid_y.flatten()
+    # rayをyz平面視点にする
+    ray_starts[:, 1] = grid_x.flatten()
+    ray_starts[:, 2] = grid_y.flatten()
     # define ray-cast directions
     ray_directions = torch.zeros_like(ray_starts)
     ray_directions[..., :] = torch.tensor(list(cfg.direction), device=device)

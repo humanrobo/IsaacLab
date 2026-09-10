@@ -419,3 +419,116 @@ class HeightMapGenerator:
         if self.gui_enabled:
             self.update_gui(height_maps, robot_pos)
         return height_maps
+
+    
+    def generate_from_ray(self, ray_hits_w, robot_pos, robot_yaw):
+        N = ray_hits_w.shape[0]
+        device = ray_hits_w.device
+        xmin = robot_pos[:, 0] - self.map_size / 2.0
+        ymin = robot_pos[:, 1] - self.map_size / 2.0
+        valid = (
+            torch.isfinite(ray_hits_w).all(dim=-1)
+            & (ray_hits_w[..., 2] > -0.1)
+            & (ray_hits_w[..., 2] < 3.0)
+        )
+        height_maps = []
+        for env_id in range(N):
+            points_world = ray_hits_w[env_id][valid[env_id]]
+            if points_world.numel() == 0:
+                height_map = torch.zeros(
+                    (self.map_H, self.map_W),
+                    device=device,
+                    dtype=torch.float32,
+                )
+            else:
+                mask = (
+                    (points_world[:, 0] >= xmin[env_id])
+                    & (points_world[:, 0] < xmin[env_id] + self.map_size)
+                    & (points_world[:, 1] >= ymin[env_id])
+                    & (points_world[:, 1] < ymin[env_id] + self.map_size)
+                )
+                points_world = points_world[mask]
+                if points_world.numel() == 0:
+                    height_map = torch.zeros(
+                        (self.map_H, self.map_W),
+                        device=device,
+                        dtype=torch.float32,
+                    )
+                else:
+                    height_map = self.create_height_map(
+                        points_world,
+                        xmin[env_id],
+                        ymin[env_id],
+                    )
+                    height_map = F.max_pool2d(
+                        height_map.unsqueeze(0).unsqueeze(0),
+                        kernel_size=3,
+                        stride=1,
+                        padding=1,
+                    ).squeeze(0).squeeze(0)
+                    height_map = F.conv2d(
+                        height_map.unsqueeze(0).unsqueeze(0),
+                        self.gaussian_kernel,
+                        padding=self.kernel_size // 2,
+                    ).squeeze(0).squeeze(0)
+            height_maps.append(height_map)
+        height_maps = torch.stack(height_maps)
+
+        fov_deg = 30.0
+        ys, xs = torch.meshgrid(
+            torch.arange(self.map_H, device=device),
+            torch.arange(self.map_W, device=device),
+            indexing="ij",
+        )
+        x = (xs.float() - self.map_W / 2.0) * self.resolution
+        y = (self.map_H / 2.0 - ys.float()) * self.resolution
+        angle = torch.atan2(y, x)
+        fov_mask = torch.abs(angle) < (fov_deg * torch.pi / 180.0 / 2.0)
+        fov_masks = fov_mask.unsqueeze(0).expand(N, -1, -1)
+        if self.prev_height_map is None:
+            persistent_height_maps = height_maps.clone()
+            self.prev_robot_pos = robot_pos.clone()
+            self.prev_robot_yaw = robot_yaw.clone()
+        else:
+            persistent_height_maps = torch.zeros_like(height_maps)
+            for env_id in range(N):
+                dx = robot_pos[env_id, 0] - self.prev_robot_pos[env_id, 0]
+                dy = robot_pos[env_id, 1] - self.prev_robot_pos[env_id, 1]
+                delta_yaw = robot_yaw[env_id] - self.prev_robot_yaw[env_id]
+                prev_map = self.prev_height_map[env_id]
+                # prev_map = self.rotate_to_robot_frame(
+                #     self.prev_height_map[env_id].unsqueeze(0),
+                #     delta_yaw.unsqueeze(0),
+                # )[0]
+                shift_x = torch.round(dx / self.resolution).long()
+                shift_y = torch.round(dy / self.resolution).long()
+                persistent_height_maps[env_id] = self.shift_height_map(
+                    prev_map,
+                    -shift_y.item(),
+                    +shift_x.item(),
+                )
+            # 例：ロボットの向きに合わせて fov_masks 自体も回転させる
+            rotated_fov_masks = self.rotate_to_robot_frame(
+                fov_masks.float(), 
+                -robot_yaw,
+            ).bool()
+            persistent_height_maps = torch.where(
+                rotated_fov_masks,
+                height_maps,
+                persistent_height_maps,
+            )
+            # persistent_height_maps = torch.maximum(height_maps, persistent_height_maps)
+            self.prev_robot_pos = robot_pos.clone()
+            self.prev_robot_yaw = robot_yaw.clone()
+
+        self.prev_height_map = persistent_height_maps.clone()
+        height_maps = persistent_height_maps
+
+        height_maps = self.rotate_to_robot_frame(
+            height_maps,
+            robot_yaw - torch.pi / 2,
+        )
+        if self.gui_enabled:
+            self.update_gui(height_maps, robot_pos)
+
+        return height_maps

@@ -193,17 +193,63 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         ),
     )
 
+    # ray_caster = MultiMeshRayCasterCfg(
+    #     prim_path="/World/envs/env_.*/Robot",
+    #     update_period=0.0,
+    #     ray_alignment="yaw",
+    #     offset=RayCasterCfg.OffsetCfg(
+    #         pos=(0.0, 0.0, 2.0),
+    #     ),
+    #     pattern_cfg=patterns.GridPatternCfg(
+    #         resolution=0.05,
+    #         size=(3.2, 3.2),
+    #         direction=(0.0, 0.0, -1.0),
+    #         ordering="yx",
+    #     ),
+    #     mesh_prim_paths=[
+    #         MultiMeshRayCasterCfg.RaycastTargetCfg(
+    #             prim_expr="{ENV_REGEX_NS}/Obstacle.*",
+    #             track_mesh_transforms=True,
+    #         ),
+    #     ],
+    #     max_distance=4.0,
+    #     debug_vis=False,
+    # )
+    # ray_caster = MultiMeshRayCasterCfg(
+    #     prim_path="/World/envs/env_.*/Robot",
+    #     update_period=0.0,
+    #     ray_alignment="yaw",
+    #     offset=RayCasterCfg.OffsetCfg(
+    #         pos=(0.25, 0.0, 0.0),
+    #     ),
+    #     pattern_cfg=patterns.GridPatternCfg(
+    #         resolution=0.05,
+    #         size=(3.2, 3.2),
+    #         direction=(1.0, 0.0, 0.0),
+    #         ordering="yx",
+    #     ),
+    #     mesh_prim_paths=[
+    #         MultiMeshRayCasterCfg.RaycastTargetCfg(
+    #             prim_expr="{ENV_REGEX_NS}/Obstacle.*",
+    #             track_mesh_transforms=True,
+    #         ),
+    #     ],
+    #     max_distance=4.0,
+    #     debug_vis=True,
+    # )
+
+    #デバック用
     ray_caster = MultiMeshRayCasterCfg(
         prim_path="/World/envs/env_.*/Robot",
         update_period=0.0,
-        ray_alignment="yaw",
+        ray_alignment="base",
         offset=RayCasterCfg.OffsetCfg(
-            pos=(0.0, 0.0, 2.0),
+            pos=(0.25, 0.0, 0.0),
         ),
         pattern_cfg=patterns.GridPatternCfg(
             resolution=0.05,
-            size=(3.2, 3.2),
-            direction=(0.0, 0.0, -1.0),
+            size=(0.5, 0.5),
+            direction=(100.0, 0.0, 0.0),
             ordering="yx",
         ),
         mesh_prim_paths=[
@@ -213,5 +259,5 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             ),
         ],
         max_distance=4.0,
-        debug_vis=False,
+        debug_vis=True,
     )
