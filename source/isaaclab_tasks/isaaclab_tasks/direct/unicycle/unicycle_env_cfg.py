@@ -156,25 +156,47 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             pos=(2.5, 0.0, 0.25),
         ),
     )
-    obstacle_pushable = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/PushableObstacle",
+    obstacle_pushable1 = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/PushableObstacle1",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
-            semantic_tags=[("class", "pushable")],
+            size=(0.5, 0.4, 0.5),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=False,
-            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=False),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(
-                mass=0.1,
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
+            semantic_tags=[("class", "pushable")],
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(2.0, 0.0, 0.1)),
+    )
+    obstacle_pushable2 = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/PushableObstacle2",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 0.4, 0.5),
+            visual_material=sim_utils.PreviewSurfaceCfg(
+                diffuse_color=(0.0, 0.0, 1.0),
             ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=False),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
+            semantic_tags=[("class", "pushable")],
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(2.5, 0.0, 0.1),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(3.0, 0.0, 0.1)),
+    )
+    obstacle_pushable3 = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/PushableObstacle3",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 0.4, 0.5),
+            visual_material=sim_utils.PreviewSurfaceCfg(
+                diffuse_color=(0.0, 0.0, 1.0),
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=False),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
+            semantic_tags=[("class", "pushable")],
         ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(4.0, 0.0, 0.1)),
     )
     # obstacle1 = RigidObjectCfg(
     #     prim_path="/World/envs/env_.*/Obstacle1",

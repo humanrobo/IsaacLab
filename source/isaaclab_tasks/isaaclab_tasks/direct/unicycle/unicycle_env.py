@@ -32,7 +32,7 @@ class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
 
     def __init__(self, cfg: UnicycleEnvCfg, render_mode: str | None = None, **kwargs):
-        self.obstacle_stage = 9
+        self.obstacle_stage = 10
         super().__init__(cfg, render_mode, **kwargs)
         print("--- Unicycle Environment Initialized ---")
 
@@ -48,7 +48,7 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 報酬用変数
         # ==========================================
-        self.obstacle_passed = torch.zeros((self.num_envs, 3), dtype=torch.bool, device=self.device)
+        self.obstacle_passed = torch.zeros((self.num_envs, 2), dtype=torch.bool, device=self.device)
         self.prev_root_pos = torch.zeros(
             (self.num_envs, 3),
             device=self.device
@@ -110,10 +110,10 @@ class UnicycleEnv(DirectRLEnv):
         self.robot = RigidObject(self.cfg.robot)
         self.camera = Camera(self.cfg.camera)
         # self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9]:
+        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
             self.obstacle1 = RigidObject(self.cfg.obstacle1)
             self.scene.rigid_objects["obstacle1"] = self.obstacle1
-        if self.obstacle_stage in [2, 5, 7, 9]:
+        if self.obstacle_stage in [2, 5, 7, 9, 10]:
             self.obstacle2 = RigidObject(self.cfg.obstacle2)
             self.scene.rigid_objects["obstacle2"] = self.obstacle2
         if self.obstacle_stage == 5:
@@ -122,15 +122,21 @@ class UnicycleEnv(DirectRLEnv):
         if self.obstacle_stage in [5, 6]:
             self.obstacle_long = RigidObject(self.cfg.obstacle_long)
             self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
-        if self.obstacle_stage in [7, 8, 9]:
+        if self.obstacle_stage in [7, 8, 9, 10]:
             self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
             self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
-        if self.obstacle_stage in [7, 8, 9]:
+        if self.obstacle_stage in [7, 8, 9, 10]:
             self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
             self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
-        if self.obstacle_stage in [8, 9]:
-            self.obstacle_pushable = RigidObject(self.cfg.obstacle_pushable)
-            self.scene.rigid_objects["obstacle_pushable"] = self.obstacle_pushable
+        if self.obstacle_stage in [8, 9, 10]:
+            self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
+            self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
+        if self.obstacle_stage in [10]:
+            self.obstacle_pushable2 = RigidObject(self.cfg.obstacle_pushable2)
+            self.scene.rigid_objects["obstacle_pushable2"] = self.obstacle_pushable2
+        if self.obstacle_stage in [10]:
+            self.obstacle_pushable3 = RigidObject(self.cfg.obstacle_pushable3)
+            self.scene.rigid_objects["obstacle_pushable3"] = self.obstacle_pushable3
         stage = self.sim.stage
         barrier_path = "/World/envs/env_0/Robot/Barrier"
         barrier = UsdGeom.Cube.Define(stage, barrier_path)
@@ -167,12 +173,12 @@ class UnicycleEnv(DirectRLEnv):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
         self.actions = torch.clamp(actions, -1.0, 1.0)
         #semseg各クラスがID割り当てられたときに、pushableのIDを探す
-        if self.pushable_color is None:
-            semantic_info = self.camera.data.info[0]["semantic_segmentation"]["idToLabels"]
-            self.pushable_color = next(
-                ast.literal_eval(k) for k, v in semantic_info.items()
-                if v.get("class") == "pushable"
-            )
+        # if self.pushable_color is None:
+        #     semantic_info = self.camera.data.info[0]["semantic_segmentation"]["idToLabels"]
+        #     self.pushable_color = next(
+        #         ast.literal_eval(k) for k, v in semantic_info.items()
+        #         if v.get("class") == "pushable"
+        #     )
 
     def _apply_action(self):
         # ユニサイクルモデルへの速度指令（Velocities）を直接適用
@@ -307,16 +313,16 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 障害物の中心位置
         obstacle_pos_list = []
-        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9]:
+        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
             obstacle_pos_list.append(self.obstacle1.data.root_pos_w[:, :2])
-        if self.obstacle_stage in [2, 5, 7, 9]:
+        if self.obstacle_stage in [2, 5, 7, 9, 10]:
             obstacle_pos_list.append(self.obstacle2.data.root_pos_w[:, :2])
         if self.obstacle_stage == 5:
             obstacle_pos_list.append(self.obstacle3.data.root_pos_w[:, :2])
         if self.obstacle_stage in [5, 6]:
             obstacle_pos_list.append(self.obstacle_long.data.root_pos_w[:, :2])
-        if self.obstacle_stage in [8, 9]:
-            obstacle_pos_list.append(self.obstacle_pushable.data.root_pos_w[:, :2])
+        if self.obstacle_stage in [8]:
+            obstacle_pos_list.append(torch.zeros_like(self.root_pos_w[:, :2]))
         obstacle_pos = torch.stack(obstacle_pos_list, dim=1)
         robot_radius = self.cfg.robot.spawn.radius
         obstacle_radius = 0.3#self.cfg.obstacle1.spawn.radius
@@ -594,7 +600,6 @@ class UnicycleEnv(DirectRLEnv):
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
-
             for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
                 wall_state = wall.data.default_root_state[env_ids].clone()
                 wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
@@ -604,17 +609,17 @@ class UnicycleEnv(DirectRLEnv):
             # 左右の壁＋PushableObstacleを中央に配置
             pos = torch.tensor([3.0, 0.0, 0.1], device=self.device).repeat(num_envs, 1)
             pos += self.scene.env_origins[env_ids]
-            obstacle_state = self.obstacle_pushable.data.default_root_state[env_ids].clone()
+            obstacle_state = self.obstacle_pushable1.data.default_root_state[env_ids].clone()
             obstacle_state[:, :3] = pos
-            self.obstacle_pushable.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+            self.obstacle_pushable1.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
             for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
                 wall_state = wall.data.default_root_state[env_ids].clone()
                 wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
                 wall.write_root_pose_to_sim(wall_state[:, :7], env_ids)
 
         elif self.obstacle_stage == 9:
-            # 左右の壁＋障害物1個・ランダム位置
-            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle_pushable]:
+            # 左右の壁＋障害物3個とPushableObstacle・ランダム位置
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle_pushable1]:
                 pos = torch.zeros((num_envs, 3), device=self.device)
                 pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.0, 5.0)
                 pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
@@ -622,7 +627,28 @@ class UnicycleEnv(DirectRLEnv):
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+            for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
+                wall_state = wall.data.default_root_state[env_ids].clone()
+                wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
+                wall.write_root_pose_to_sim(wall_state[:, :7], env_ids)
 
+        elif self.obstacle_stage == 10:
+            obstacles = [
+                self.obstacle_pushable1,
+                self.obstacle1,
+                self.obstacle_pushable2,
+                self.obstacle2,
+                self.obstacle_pushable3,
+            ]
+            ys = [-1.4, -0.7, 0.0, 0.7, 1.4]
+            for obstacle, y in zip(obstacles, ys):
+                pos = torch.zeros((num_envs, 3), device=self.device)
+                pos[:, 0] = 3.0
+                pos[:, 1] = y
+                pos[:, 2] = 0.25
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
             for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
                 wall_state = wall.data.default_root_state[env_ids].clone()
                 wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
