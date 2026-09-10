@@ -26,11 +26,13 @@ from .heightmap_generator import HeightMapGenerator
 from isaaclab.sensors.ray_caster import MultiMeshRayCaster
 from .ray_heightmap_generator import RayHeightmapGenerator
 from pxr import Gf, UsdGeom, UsdPhysics
+import ast
 
 class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
 
     def __init__(self, cfg: UnicycleEnvCfg, render_mode: str | None = None, **kwargs):
+        self.obstacle_stage = 9
         super().__init__(cfg, render_mode, **kwargs)
         print("--- Unicycle Environment Initialized ---")
 
@@ -46,7 +48,7 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 報酬用変数
         # ==========================================
-        self.obstacle_passed = torch.zeros((self.num_envs, 4), dtype=torch.bool, device=self.device)
+        self.obstacle_passed = torch.zeros((self.num_envs, 3), dtype=torch.bool, device=self.device)
         self.prev_root_pos = torch.zeros(
             (self.num_envs, 3),
             device=self.device
@@ -82,16 +84,19 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 障害物のサイズ
         # ==========================================
-        self.obstacle_stage = 5
         # self.obstacle_radius = self.cfg.obstacle1.spawn.radius
         # self.obstacle_height = self.cfg.obstacle1.spawn.height
+        # ==========================================
+        # セマセグ用
+        # ==========================================
+        self.pushable_color = None
         # ==========================================
         # ヒートマップ作成
         # ==========================================
         self.heightmap_generator = HeightMapGenerator(
             resolution=0.05,
             map_size=3.2,
-            gui_enabled=False,
+            gui_enabled=True,
             device=self.device,
         )
         self.ray_heightmap_generator = RayHeightmapGenerator(
@@ -103,12 +108,12 @@ class UnicycleEnv(DirectRLEnv):
 
     def _setup_scene(self):
         self.robot = RigidObject(self.cfg.robot)
-        # self.camera = Camera(self.cfg.camera)
-        self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-        if self.obstacle_stage in [1, 2, 3, 4, 5]:
+        self.camera = Camera(self.cfg.camera)
+        # self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
+        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9]:
             self.obstacle1 = RigidObject(self.cfg.obstacle1)
             self.scene.rigid_objects["obstacle1"] = self.obstacle1
-        if self.obstacle_stage in [2, 5]:
+        if self.obstacle_stage in [2, 5, 7, 9]:
             self.obstacle2 = RigidObject(self.cfg.obstacle2)
             self.scene.rigid_objects["obstacle2"] = self.obstacle2
         if self.obstacle_stage == 5:
@@ -117,6 +122,15 @@ class UnicycleEnv(DirectRLEnv):
         if self.obstacle_stage in [5, 6]:
             self.obstacle_long = RigidObject(self.cfg.obstacle_long)
             self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
+        if self.obstacle_stage in [7, 8, 9]:
+            self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
+            self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
+        if self.obstacle_stage in [7, 8, 9]:
+            self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
+            self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
+        if self.obstacle_stage in [8, 9]:
+            self.obstacle_pushable = RigidObject(self.cfg.obstacle_pushable)
+            self.scene.rigid_objects["obstacle_pushable"] = self.obstacle_pushable
         stage = self.sim.stage
         barrier_path = "/World/envs/env_0/Robot/Barrier"
         barrier = UsdGeom.Cube.Define(stage, barrier_path)
@@ -141,8 +155,8 @@ class UnicycleEnv(DirectRLEnv):
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         self.scene.rigid_objects["robot"] = self.robot
-        # self.scene.sensors["camera"] = self.camera
-        self.scene.sensors["ray_caster"] = self.ray_caster
+        self.scene.sensors["camera"] = self.camera
+        # self.scene.sensors["ray_caster"] = self.ray_caster
         light_cfg = sim_utils.DomeLightCfg(
             intensity=2000.0,
             color=(0.75, 0.75, 0.75),
@@ -152,6 +166,13 @@ class UnicycleEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
         self.actions = torch.clamp(actions, -1.0, 1.0)
+        #semseg各クラスがID割り当てられたときに、pushableのIDを探す
+        if self.pushable_color is None:
+            semantic_info = self.camera.data.info[0]["semantic_segmentation"]["idToLabels"]
+            self.pushable_color = next(
+                ast.literal_eval(k) for k, v in semantic_info.items()
+                if v.get("class") == "pushable"
+            )
 
     def _apply_action(self):
         # ユニサイクルモデルへの速度指令（Velocities）を直接適用
@@ -239,25 +260,28 @@ class UnicycleEnv(DirectRLEnv):
         # ローカル速度への変換
         local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
         local_ang_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_ang_vel_w)
-        # depth = self.camera.data.output["distance_to_image_plane"]
-        # height_map = self.heightmap_generator.generate_from_depth(
-        #     depth,
-        #     self.camera,
-        #     root_pos_w,
-        #     robot_yaw,
-        # )
-        # height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
-
-        ray_data = self.scene.sensors["ray_caster"].data
-        ray_hits_w = ray_data.ray_hits_w
-        # ray_heightmap = self.ray_heightmap_generator.generate(
-        #     ray_hits_w
-        # )
-        ray_heightmap = self.heightmap_generator.generate_from_ray(
-            ray_hits_w,
+        semantic = self.camera.data.output["semantic_segmentation"]
+        depth = self.camera.data.output["distance_to_image_plane"]
+        height_map = self.heightmap_generator.generate_from_depth(
+            depth,
+            self.camera,
             root_pos_w,
-            robot_yaw
+            robot_yaw,
+            semantic,
+            self.pushable_color,
         )
+        height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
+
+        # ray_data = self.scene.sensors["ray_caster"].data
+        # ray_hits_w = ray_data.ray_hits_w
+        # # ray_heightmap = self.ray_heightmap_generator.generate(
+        # #     ray_hits_w
+        # # )
+        # ray_heightmap = self.heightmap_generator.generate_from_ray(
+        #     ray_hits_w,
+        #     root_pos_w,
+        #     robot_yaw
+        # )
         # print("ray_heightmap:", ray_heightmap.shape)
 
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
@@ -272,7 +296,7 @@ class UnicycleEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": ray_heightmap}}
+        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": height_map}}
 
     def _get_rewards(self) -> torch.Tensor:
         root_pos_w = self.robot.data.root_pos_w
@@ -282,12 +306,18 @@ class UnicycleEnv(DirectRLEnv):
         local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
         # ==========================================
         # 障害物の中心位置
-        obstacle_pos = torch.stack([
-            self.obstacle1.data.root_pos_w[:, :2],
-            self.obstacle2.data.root_pos_w[:, :2],
-            self.obstacle3.data.root_pos_w[:, :2],
-            self.obstacle_long.data.root_pos_w[:, :2],
-        ], dim=1)
+        obstacle_pos_list = []
+        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9]:
+            obstacle_pos_list.append(self.obstacle1.data.root_pos_w[:, :2])
+        if self.obstacle_stage in [2, 5, 7, 9]:
+            obstacle_pos_list.append(self.obstacle2.data.root_pos_w[:, :2])
+        if self.obstacle_stage == 5:
+            obstacle_pos_list.append(self.obstacle3.data.root_pos_w[:, :2])
+        if self.obstacle_stage in [5, 6]:
+            obstacle_pos_list.append(self.obstacle_long.data.root_pos_w[:, :2])
+        if self.obstacle_stage in [8, 9]:
+            obstacle_pos_list.append(self.obstacle_pushable.data.root_pos_w[:, :2])
+        obstacle_pos = torch.stack(obstacle_pos_list, dim=1)
         robot_radius = self.cfg.robot.spawn.radius
         obstacle_radius = 0.3#self.cfg.obstacle1.spawn.radius
         # 円柱同士の中心距離
@@ -553,6 +583,50 @@ class UnicycleEnv(DirectRLEnv):
             obstacle_long_state = self.obstacle_long.data.default_root_state[env_ids].clone()
             obstacle_long_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([2.5, 0.0, 0.25], device=self.device)
             self.obstacle_long.write_root_pose_to_sim(obstacle_long_state[:, :7], env_ids)
+
+        elif self.obstacle_stage == 7:
+            # 左右の壁＋障害物1個・ランダム位置
+            for obstacle in [self.obstacle1, self.obstacle2]:
+                pos = torch.zeros((num_envs, 3), device=self.device)
+                pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.0, 5.0)
+                pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
+                pos[:, 2] = 0.25
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+
+            for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
+                wall_state = wall.data.default_root_state[env_ids].clone()
+                wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
+                wall.write_root_pose_to_sim(wall_state[:, :7], env_ids)
+
+        elif self.obstacle_stage == 8:
+            # 左右の壁＋PushableObstacleを中央に配置
+            pos = torch.tensor([3.0, 0.0, 0.1], device=self.device).repeat(num_envs, 1)
+            pos += self.scene.env_origins[env_ids]
+            obstacle_state = self.obstacle_pushable.data.default_root_state[env_ids].clone()
+            obstacle_state[:, :3] = pos
+            self.obstacle_pushable.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+            for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
+                wall_state = wall.data.default_root_state[env_ids].clone()
+                wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
+                wall.write_root_pose_to_sim(wall_state[:, :7], env_ids)
+
+        elif self.obstacle_stage == 9:
+            # 左右の壁＋障害物1個・ランダム位置
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle_pushable]:
+                pos = torch.zeros((num_envs, 3), device=self.device)
+                pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.0, 5.0)
+                pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
+                pos[:, 2] = 0.25
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+
+            for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
+                wall_state = wall.data.default_root_state[env_ids].clone()
+                wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
+                wall.write_root_pose_to_sim(wall_state[:, :7], env_ids)
 
         self.obstacle_passed[env_ids] = False
         self.prev_root_pos[env_ids] = self.robot.data.root_pos_w[env_ids]

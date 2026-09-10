@@ -289,12 +289,15 @@ class HeightMapGenerator:
     # ================================================================
     # Generateカメラで
     # ================================================================
-    def generate_from_depth(self, depth, camera, robot_pos, robot_yaw):
+    def generate_from_depth(self, depth, camera, robot_pos, robot_yaw, semantic=None, pushable_color=None):
         N = depth.shape[0]
         device = depth.device
         depth = depth.squeeze(-1)
         scale = 2
         depth = depth[:, ::scale, ::scale]
+        if semantic is not None:
+            semantic = semantic.squeeze(-1)
+            semantic = semantic[:, ::scale, ::scale]
         camera_positions, camera_quats_gl = camera._view.get_world_poses()
         camera_quats_ros = convert_camera_frame_orientation_convention(
             camera_quats_gl,
@@ -317,6 +320,10 @@ class HeightMapGenerator:
                 indexing="xy",
             )
             valid = torch.isfinite(d) & (d > 0.0) & (d < 10.0)
+            if semantic is not None and pushable_color is not None:
+                valid &= ~(semantic[env_id] == torch.tensor(
+                    pushable_color, device=device, dtype=semantic.dtype
+                )).all(dim=-1)
             z = torch.where(valid, d, torch.zeros_like(d))
             x = (u - cx) * z / fx
             y = (v - cy) * z / fy
@@ -362,7 +369,6 @@ class HeightMapGenerator:
                 ).squeeze(0).squeeze(0)
             height_maps.append(height_map)
         height_maps = torch.stack(height_maps)
-
         fov_deg = 30.0
         ys, xs = torch.meshgrid(
             torch.arange(self.map_H, device=device),
@@ -383,22 +389,15 @@ class HeightMapGenerator:
             for env_id in range(N):
                 dx = robot_pos[env_id, 0] - self.prev_robot_pos[env_id, 0]
                 dy = robot_pos[env_id, 1] - self.prev_robot_pos[env_id, 1]
-                delta_yaw = robot_yaw[env_id] - self.prev_robot_yaw[env_id]
-                prev_map = self.prev_height_map[env_id]
-                # prev_map = self.rotate_to_robot_frame(
-                #     self.prev_height_map[env_id].unsqueeze(0),
-                #     delta_yaw.unsqueeze(0),
-                # )[0]
                 shift_x = torch.round(dx / self.resolution).long()
                 shift_y = torch.round(dy / self.resolution).long()
                 persistent_height_maps[env_id] = self.shift_height_map(
-                    prev_map,
+                    self.prev_height_map[env_id],
                     -shift_y.item(),
                     +shift_x.item(),
                 )
-            # 例：ロボットの向きに合わせて fov_masks 自体も回転させる
             rotated_fov_masks = self.rotate_to_robot_frame(
-                fov_masks.float(), 
+                fov_masks.float(),
                 -robot_yaw,
             ).bool()
             persistent_height_maps = torch.where(
@@ -406,10 +405,8 @@ class HeightMapGenerator:
                 height_maps,
                 persistent_height_maps,
             )
-            # persistent_height_maps = torch.maximum(height_maps, persistent_height_maps)
             self.prev_robot_pos = robot_pos.clone()
             self.prev_robot_yaw = robot_yaw.clone()
-
         self.prev_height_map = persistent_height_maps.clone()
         height_maps = persistent_height_maps
         height_maps = self.rotate_to_robot_frame(
@@ -420,7 +417,9 @@ class HeightMapGenerator:
             self.update_gui(height_maps, robot_pos)
         return height_maps
 
-    
+    # ================================================================
+    # 水平ray
+    # ================================================================
     def generate_from_ray(self, ray_hits_w, robot_pos, robot_yaw):
         N = ray_hits_w.shape[0]
         device = ray_hits_w.device

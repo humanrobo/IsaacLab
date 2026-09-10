@@ -130,6 +130,52 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             pos=(2.5, 0.0, 0.25),
         ),
     )
+    obstacle_wallr = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/ObstacleWallR",
+        spawn=sim_utils.CuboidCfg(
+            size=(8.0, 0.5, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.0, 0.25),
+        ),
+    )
+    obstacle_walll = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/ObstacleWallL",
+        spawn=sim_utils.CuboidCfg(
+            size=(8.0, 0.5, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.0, 0.25),
+        ),
+    )
+    obstacle_pushable = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/PushableObstacle",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 0.5, 0.5),
+            semantic_tags=[("class", "pushable")],
+            visual_material=sim_utils.PreviewSurfaceCfg(
+                diffuse_color=(0.0, 0.0, 1.0),
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(
+                mass=0.1,
+            ),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.0, 0.1),
+        ),
+    )
     # obstacle1 = RigidObjectCfg(
     #     prim_path="/World/envs/env_.*/Obstacle1",
     #     spawn=sim_utils.CylinderCfg(
@@ -180,7 +226,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         update_period=0.0,
         height=64,
         width=64,
-        data_types=["rgb", "distance_to_image_plane"],
+        data_types=["rgb", "distance_to_image_plane", "semantic_segmentation"],
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=24.0,
             focus_distance=400.0,
@@ -247,9 +293,9 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             pos=(0.25, 0.0, 0.0),
         ),
         pattern_cfg=patterns.GridPatternCfg(
-            resolution=0.05,
+            resolution=0.1,
             size=(0.5, 0.5),
-            direction=(100.0, 0.0, 0.0),
+            direction=(1.0, 0.0, 0.0),
             ordering="yx",
         ),
         mesh_prim_paths=[
