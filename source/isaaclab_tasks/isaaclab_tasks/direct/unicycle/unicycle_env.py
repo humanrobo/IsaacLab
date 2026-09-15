@@ -96,7 +96,7 @@ class UnicycleEnv(DirectRLEnv):
         self.heightmap_generator = HeightMapGenerator(
             resolution=0.05,
             map_size=3.2,
-            gui_enabled=True,
+            gui_enabled=False,
             device=self.device,
         )
         self.ray_heightmap_generator = RayHeightmapGenerator(
