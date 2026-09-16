@@ -11,6 +11,8 @@ import gymnasium as gym
 
 from . import agents
 
+from .unicycle_human28_env import UnicycleHumanoid28Env
+from .unicycle_human28_env_cfg import UnicycleHumanoid28EnvCfg
 ##
 # Register Gym environments.
 ##
@@ -51,6 +53,17 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.h1_amp_env_cfg:HumanoidAmpWalkEnvCfg",
+        "skrl_amp_cfg_entry_point": f"{agents.__name__}:skrl_walk_amp_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Isaac-Unicycle-Humanoid28-v0",
+    entry_point="isaaclab_tasks.direct.humanoid_amp:UnicycleHumanoid28Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": UnicycleHumanoid28EnvCfg,
         "skrl_amp_cfg_entry_point": f"{agents.__name__}:skrl_walk_amp_cfg.yaml",
     },
 )

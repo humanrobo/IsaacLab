@@ -67,8 +67,10 @@ def main():
     # ============================================================
     g1_obs, _ = g1_env.get_observations()
     print("[INFO] G1 environment started.")
-    print(f"[INFO] G1 observation type: {type(g1_obs)}")
-    print(g1_obs)
+    print("=== Initial G1 obs ===")
+    for k, v in g1_obs.items():
+        print(k)
+        print(v)
     # ============================================================
     # Main loop
     # ============================================================
@@ -87,21 +89,13 @@ def main():
             command[:, 1] = 0.0
             command[:, 2] = 0.0#omega
             g1_obs, _ = g1_env.get_observations()
-            # TensorDict -> Tensor
-            g1_obs_tensor = torch.cat([
-                g1_obs["velocity_commands"],
-                g1_obs["base_ang_vel"],
-                g1_obs["projected_gravity"],
-                g1_obs["controlled_joint_pos"],
-                g1_obs["controlled_joint_vel"],
-                g1_obs["actions"],
-            ], dim=-1)
-            g1_obs_tensor = g1_obs_tensor.reshape(g1_obs_tensor.shape[0], -1)
-            # print("G1 obs shape:", g1_obs_tensor.shape)
-            # print("G1 obs[0]:", g1_obs_tensor[0])
-            # G1 policy
+            g1_obs_tensor = torch.cat(
+                [obs.flatten(start_dim=1) for obs in g1_obs.values()],
+                dim=-1,
+            )
             g1_actions = g1_policy(g1_obs_tensor)
-            # G1 step
+            # print("G1 obs:", g1_obs_tensor[0])
+            # print("G1 action:", g1_actions[0])
             g1_obs, _, _, _ = g1_env.step(g1_actions)
 
         if step % 100 == 0:

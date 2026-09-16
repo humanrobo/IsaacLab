@@ -174,7 +174,7 @@ class HumanoidAmpEnv(DirectRLEnv):
 
     def _get_observations(self) -> dict:
         #追加
-# -----------------------------------------------------------
+        # -----------------------------------------------------------
         # 1. 基本的なワールドデータの取得
         # -----------------------------------------------------------
         root_pos_w = self.robot.data.body_pos_w[:, self.ref_body_index]
@@ -223,7 +223,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             local_key_pos,
             heading_sin,
             heading_cos,
-            self.footstep_targets,
+            # self.footstep_targets,
         )
 
         # -----------------------------------------------------------
@@ -470,7 +470,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         #     * 2.0 * torch.pi
         #     - torch.pi
         # )#世界座標基準（ワールド基準）の yaw
-        #追加 初期の目標の向きをランダムにしている
+        # 追加 初期の目標の向きをランダムにしている
         # self.goal_yaw[env_ids] = torch.pi*0.55
         # self.goal_yaw[env_ids] = torch.pi / 3
 
@@ -479,6 +479,7 @@ class HumanoidAmpEnv(DirectRLEnv):
     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         root_state = self.robot.data.default_root_state[env_ids].clone()
         root_state[:, :3] += self.scene.env_origins[env_ids]
+        root_state[:, 2] += 0.6
         joint_pos = self.robot.data.default_joint_pos[env_ids].clone()
         joint_vel = self.robot.data.default_joint_vel[env_ids].clone()
         return root_state, joint_pos, joint_vel
@@ -662,7 +663,7 @@ def compute_policy_obs(
     #追加
     heading_sin: torch.Tensor,
     heading_cos: torch.Tensor,
-    footstep_targets: torch.Tensor,
+    # footstep_targets: torch.Tensor,
 ) -> torch.Tensor:
     obs = torch.cat(
         (
@@ -676,7 +677,7 @@ def compute_policy_obs(
             #追加
             heading_sin.unsqueeze(-1),
             heading_cos.unsqueeze(-1),
-            footstep_targets,
+            # footstep_targets,
         ),
         dim=-1,
     )

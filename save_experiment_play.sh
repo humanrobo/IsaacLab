@@ -52,7 +52,7 @@ echo "Start play..."
 
 CMD=(
 ./isaaclab.sh
--p scripts/reinforcement_learning/skrl/play.py
+-p scripts/reinforcement_learning/skrl/play_defo.py
 --task "$TASK_NAME"
 --algorithm AMP
 --checkpoint "$CHECKPOINT"

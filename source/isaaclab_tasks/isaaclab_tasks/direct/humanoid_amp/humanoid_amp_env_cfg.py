@@ -29,7 +29,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
     decimation = 2
 
     # spaces
-    observation_space = 87#次元を2+4つ追加
+    observation_space = 83#次元を2+4つ追加
     action_space = 28
     state_space = 0
     num_amp_observations = 2
@@ -40,7 +40,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
 
     motion_file: str = MISSING
     reference_body = "torso"
-    reset_strategy = "random"  # default, random, random-start
+    reset_strategy = "default"  # default, random, random-start
     """Strategy to be followed when resetting each environment (humanoid's pose and joint states).
 
     * default: pose and joint states are set to the initial state of the asset.
