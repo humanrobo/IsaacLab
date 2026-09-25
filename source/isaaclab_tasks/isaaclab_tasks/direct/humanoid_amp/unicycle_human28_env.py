@@ -192,7 +192,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         self._unicycle_action[:, 0] *= 1.0
         self._unicycle_action[:, 1] *= 2.0
         prediction_time = 0.5
-        self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] * prediction_time
+        self.goal_yaw = robot_yaw #+ self._unicycle_action[:, 1] * prediction_time
         self.goal_yaw = torch.atan2(torch.sin(self.goal_yaw), torch.cos(self.goal_yaw))
 
     def _reset_idx(self, env_ids: torch.Tensor | None):

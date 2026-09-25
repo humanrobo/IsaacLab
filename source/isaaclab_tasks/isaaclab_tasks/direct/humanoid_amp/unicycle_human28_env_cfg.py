@@ -89,7 +89,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(2.5, -0.8, 0.25),
+            pos=(100, -0.8, 0.25),
         ),
     )
 

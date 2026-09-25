@@ -58,7 +58,7 @@ memory:
 # PPO agent configuration (field names are from PPO_DEFAULT_CONFIG)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html
 agent:
-  class: PPO
+  class: RND_PPO #変更PPO
   rollouts: 24
   learning_epochs: 5
   mini_batches: 4

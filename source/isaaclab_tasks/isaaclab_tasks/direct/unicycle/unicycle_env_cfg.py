@@ -72,7 +72,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(10.0, 0.0, 0.25),
+            pos=(0.0, 0.0, 0.25),
         ),
     )
 
@@ -327,5 +327,5 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             ),
         ],
         max_distance=4.0,
-        debug_vis=True,
+        debug_vis=False,
     )
