@@ -86,7 +86,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(2.5, -0.8, 0.25),
+            pos=(2.5, 0.0, 0.25),
         ),
     )
 
@@ -156,6 +156,34 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
             pos=(2.5, 0.0, 0.25),
         ),
     )
+    obstacle_wallf = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/ObstacleWallF",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 2.8, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.0, 0.25),
+        ),
+    )
+    obstacle_wallb = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/ObstacleWallB",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.5, 2.8, 0.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(2.5, 0.0, 0.25),
+        ),
+    )
+
+    #region pushable
     obstacle_pushable1 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle1",
         spawn=sim_utils.CuboidCfg(
@@ -171,7 +199,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         init_state=RigidObjectCfg.InitialStateCfg(pos=(2.0, 0.0, 0.1)),
     )
     obstacle_pushable2 = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/PushableObstacle2",
+        prim_path="/World/envs/env_.*/ObstaclePushable2",
         spawn=sim_utils.CuboidCfg(
             size=(0.5, 0.4, 0.5),
             visual_material=sim_utils.PreviewSurfaceCfg(
@@ -198,6 +226,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(4.0, 0.0, 0.1)),
     )
+    # endregion
     # obstacle1 = RigidObjectCfg(
     #     prim_path="/World/envs/env_.*/Obstacle1",
     #     spawn=sim_utils.CylinderCfg(

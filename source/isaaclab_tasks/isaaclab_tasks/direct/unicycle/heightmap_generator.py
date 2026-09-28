@@ -10,6 +10,7 @@ from isaaclab.utils.math import (
     convert_camera_frame_orientation_convention,
     matrix_from_quat,
 )
+from PIL import Image, ImageDraw
 
 class HeightMapGenerator:
     def __init__(
@@ -118,9 +119,18 @@ class HeightMapGenerator:
         norm = hm / 0.5
         rgb = plt.get_cmap("jet")(norm)
         rgb = (rgb[:, :, :3] * 255).astype(np.uint8)
-        img = Image.fromarray(rgb, mode="RGB")
+        img = Image.fromarray(rgb, mode="RGB").convert("RGBA")
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        y0, y1 = 22, 32
+        x0, x1 = 26, 38
+        draw.rectangle(
+            [x0, y0, x1 - 1, y1 - 1],
+            fill=(255, 255, 255, 100)
+        )
+        img = Image.alpha_composite(img, overlay)
         buffer = io.BytesIO()
-        img.save(buffer, format="PNG")
+        img.convert("RGB").save(buffer, format="PNG")
         return buffer.getvalue()
 
     # ================================================================

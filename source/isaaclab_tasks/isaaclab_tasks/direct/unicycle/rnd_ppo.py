@@ -55,8 +55,8 @@ class RND_PPO(PPO):
             with torch.no_grad():
                 intrinsic_reward = self.rnd.get_intrinsic_reward(rnd_observations)
             done = terminated | truncated
-            start_pos = self.env_origins[:, :2]
-            current_pos = self.robot.data.root_pos_w[:, :2]
+            start_pos = self.env.unwrapped.scene.env_origins[:, :2]
+            current_pos = self.env.unwrapped.robot.data.root_pos_w[:, :2]
             dist_from_start = torch.norm(current_pos - start_pos, dim=-1)
             range_mask = dist_from_start < 5.0
             intrinsic_reward = intrinsic_reward * range_mask.unsqueeze(-1).float()

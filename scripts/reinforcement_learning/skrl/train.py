@@ -94,9 +94,9 @@ if version.parse(skrl.__version__) < version.parse(SKRL_VERSION):
     exit()
 
 if args_cli.ml_framework.startswith("torch"):
-    # from skrl.utils.runner.torch import Runner
+    from skrl.utils.runner.torch import Runner
     #rnd追加
-    from isaaclab_tasks.direct.unicycle.rnd_runner import RNDRunner as Runner
+    # from isaaclab_tasks.direct.unicycle.rnd_runner import RNDRunner as Runner
 elif args_cli.ml_framework.startswith("jax"):
     from skrl.utils.runner.jax import Runner
 
@@ -255,7 +255,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # runner = Runner(env, agent_cfg)
     #rnd追加
     runner = Runner(env, agent_cfg)
-
+    # RND_PPOに環境への参照を渡す
+    runner.agent.env = env
     # load checkpoint (if specified)
     if resume_path:
         print(f"[INFO] Loading model checkpoint from: {resume_path}")
