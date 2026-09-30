@@ -52,6 +52,27 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
             pos=(0.0, 0.0, 0.25),
         ),
     )
+    camera_humanoid = CameraCfg(
+        prim_path="/World/envs/env_.*/Humanoid/head/Camera",
+        update_period=0.0,
+        height=64,
+        width=64,
+        data_types=[
+            "rgb",
+            "distance_to_image_plane",
+            "semantic_segmentation",
+        ],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.25, 0.0, 0.0),
+            rot=(-0.5, 0.5, -0.5, 0.5),
+            convention="ros",
+        ),
+    )
     camera = CameraCfg(
         prim_path="/World/envs/env_.*/Unicycle/Camera",
         update_period=0.0,
