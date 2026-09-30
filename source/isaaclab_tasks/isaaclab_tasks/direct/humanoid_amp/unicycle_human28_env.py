@@ -44,7 +44,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
 
     def __init__(self, cfg, render_mode=None, **kwargs):
         self.obstacle_stage = 1
-        self._unicycle_policy_path = "logs/skrl/unicycle_navigation/2026-09-10_15-04-51_ppo_torch/checkpoints/best_agent.pt"
+        self._unicycle_policy_path = "logs/skrl/unicycle_navigation/2026-09-29_15-01-37_ppo_torch/checkpoints/agent_30000.pt"
         self._unicycle_policy = None
         self._heightmap_generator = None
         self._unicycle_action = None

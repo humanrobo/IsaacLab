@@ -199,7 +199,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
         init_state=RigidObjectCfg.InitialStateCfg(pos=(2.0, 0.0, 0.1)),
     )
     obstacle_pushable2 = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/ObstaclePushable2",
+        prim_path="/World/envs/env_.*/PushableObstacle2",
         spawn=sim_utils.CuboidCfg(
             size=(0.5, 0.4, 0.5),
             visual_material=sim_utils.PreviewSurfaceCfg(

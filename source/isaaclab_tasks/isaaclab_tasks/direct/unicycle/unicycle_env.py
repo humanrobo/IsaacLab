@@ -33,11 +33,11 @@ class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
 
     def __init__(self, cfg: UnicycleEnvCfg, render_mode: str | None = None, **kwargs):
-        self.obstacle_stage = None
+        self.obstacle_stage = 10
         super().__init__(cfg, render_mode, **kwargs)
         self.obstacle_stages = torch.full(
             (self.num_envs,),
-            5,
+            -1,
             dtype=torch.long,
             device=self.device,
         )
@@ -55,7 +55,7 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 報酬用変数
         # ==========================================
-        self.obstacle_passed = torch.zeros((self.num_envs, 4), dtype=torch.bool, device=self.device)
+        self.obstacle_passed = torch.zeros((self.num_envs, 2), dtype=torch.bool, device=self.device)
         self.prev_root_pos = torch.zeros(
             (self.num_envs, 3),
             device=self.device
@@ -84,6 +84,21 @@ class UnicycleEnv(DirectRLEnv):
             dtype=torch.bool,
             device=self.device,
         )
+        self.best_goal_dist = torch.zeros(
+            self.num_envs,
+            device=self.device,
+        )
+        self.no_progress_count = torch.zeros(
+            self.num_envs,
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.prev_goal_valid = torch.zeros(
+            self.num_envs,
+            dtype=torch.bool,
+            device=self.device,
+        )
+        self.no_progress_threshold = 20
         self.safe_stop_threshold = 10  # action[0] ≈ 0
         #ヒートマップ用 パーソナルスペース用の距離重み
         H = 64
@@ -150,6 +165,7 @@ class UnicycleEnv(DirectRLEnv):
             map_size=3.2,
             gui_enabled=True,
             device=self.device,
+            num_envs=self.num_envs,
         )
         self.ray_heightmap_generator = RayHeightmapGenerator(
             map_size=3.2,
@@ -158,95 +174,43 @@ class UnicycleEnv(DirectRLEnv):
             gui_update_interval=10,
         )
 
-    # def _setup_scene(self):
-    #     self.robot = RigidObject(self.cfg.robot)
-    #     self.camera = Camera(self.cfg.camera)
-    #     # self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-    #     if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
-    #         self.obstacle1 = RigidObject(self.cfg.obstacle1)
-    #         self.scene.rigid_objects["obstacle1"] = self.obstacle1
-    #     if self.obstacle_stage in [2, 5, 7, 9, 10]:
-    #         self.obstacle2 = RigidObject(self.cfg.obstacle2)
-    #         self.scene.rigid_objects["obstacle2"] = self.obstacle2
-    #     if self.obstacle_stage == 5:
-    #         self.obstacle3 = RigidObject(self.cfg.obstacle3)
-    #         self.scene.rigid_objects["obstacle3"] = self.obstacle3
-    #     if self.obstacle_stage in [5, 6, 11]:
-    #         self.obstacle_long = RigidObject(self.cfg.obstacle_long)
-    #         self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
-    #     if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
-    #         self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
-    #         self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
-    #     if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
-    #         self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
-    #         self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
-    #     if self.obstacle_stage in [12]:
-    #         self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
-    #         self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
-    #     if self.obstacle_stage in [12]:
-    #         self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
-    #         self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
-    #     if self.obstacle_stage in [8, 9, 10]:
-    #         self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
-    #         self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
-    #     if self.obstacle_stage in [10]:
-    #         self.obstacle_pushable2 = RigidObject(self.cfg.obstacle_pushable2)
-    #         self.scene.rigid_objects["obstacle_pushable2"] = self.obstacle_pushable2
-    #     if self.obstacle_stage in [10]:
-    #         self.obstacle_pushable3 = RigidObject(self.cfg.obstacle_pushable3)
-    #         self.scene.rigid_objects["obstacle_pushable3"] = self.obstacle_pushable3
-    #     stage = self.sim.stage
-    #     barrier_path = "/World/envs/env_0/Robot/Barrier"
-    #     barrier = UsdGeom.Cube.Define(stage, barrier_path)
-    #     barrier.CreateSizeAttr(1.0)
-    #     xform = UsdGeom.Xformable(barrier.GetPrim())
-    #     xform.AddTranslateOp().Set(Gf.Vec3d(0.30, 0.0, 0.25))
-    #     xform.AddScaleOp().Set(Gf.Vec3d(0.025, 0.25, 0.25))
-    #     UsdPhysics.CollisionAPI.Apply(barrier.GetPrim())
-    #     UsdGeom.Imageable(barrier.GetPrim()).MakeInvisible()
-
-    #     spawn_ground_plane(
-    #         prim_path="/World/ground",
-    #         cfg=GroundPlaneCfg(
-    #             physics_material=sim_utils.RigidBodyMaterialCfg(
-    #                 static_friction=1.0,
-    #                 dynamic_friction=1.0,
-    #                 restitution=0.0,
-    #             ),
-    #         ),
-    #     )
-    #     self.scene.clone_environments(copy_from_source=False)
-    #     if self.device == "cpu":
-    #         self.scene.filter_collisions(global_prim_paths=["/World/ground"])
-    #     self.scene.rigid_objects["robot"] = self.robot
-    #     self.scene.sensors["camera"] = self.camera
-    #     # self.scene.sensors["ray_caster"] = self.ray_caster
-    #     light_cfg = sim_utils.DomeLightCfg(
-    #         intensity=2000.0,
-    #         color=(0.75, 0.75, 0.75),
-    #     )
-    #     light_cfg.func("/World/Light", light_cfg)
-
     def _setup_scene(self):
         self.robot = RigidObject(self.cfg.robot)
-        # self.camera = Camera(self.cfg.camera)
-        self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-        self.obstacle1 = RigidObject(self.cfg.obstacle1)
-        self.scene.rigid_objects["obstacle1"] = self.obstacle1
-        self.obstacle2 = RigidObject(self.cfg.obstacle2)
-        self.scene.rigid_objects["obstacle2"] = self.obstacle2
-        self.obstacle3 = RigidObject(self.cfg.obstacle3)
-        self.scene.rigid_objects["obstacle3"] = self.obstacle3
-        self.obstacle_long = RigidObject(self.cfg.obstacle_long)
-        self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
-        self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
-        self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
-        self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
-        self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
-        self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
-        self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
-        self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
-        self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
+        self.camera = Camera(self.cfg.camera)
+        # self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
+        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
+            self.obstacle1 = RigidObject(self.cfg.obstacle1)
+            self.scene.rigid_objects["obstacle1"] = self.obstacle1
+        if self.obstacle_stage in [2, 5, 7, 9, 10]:
+            self.obstacle2 = RigidObject(self.cfg.obstacle2)
+            self.scene.rigid_objects["obstacle2"] = self.obstacle2
+        if self.obstacle_stage == 5:
+            self.obstacle3 = RigidObject(self.cfg.obstacle3)
+            self.scene.rigid_objects["obstacle3"] = self.obstacle3
+        if self.obstacle_stage in [5, 6, 11]:
+            self.obstacle_long = RigidObject(self.cfg.obstacle_long)
+            self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
+        if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
+            self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
+            self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
+        if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
+            self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
+            self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
+        if self.obstacle_stage in [12]:
+            self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
+            self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
+        if self.obstacle_stage in [12]:
+            self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
+            self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
+        if self.obstacle_stage in [8, 9, 10]:
+            self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
+            self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
+        if self.obstacle_stage in [10]:
+            self.obstacle_pushable2 = RigidObject(self.cfg.obstacle_pushable2)
+            self.scene.rigid_objects["obstacle_pushable2"] = self.obstacle_pushable2
+        if self.obstacle_stage in [10]:
+            self.obstacle_pushable3 = RigidObject(self.cfg.obstacle_pushable3)
+            self.scene.rigid_objects["obstacle_pushable3"] = self.obstacle_pushable3
         stage = self.sim.stage
         barrier_path = "/World/envs/env_0/Robot/Barrier"
         barrier = UsdGeom.Cube.Define(stage, barrier_path)
@@ -271,13 +235,65 @@ class UnicycleEnv(DirectRLEnv):
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         self.scene.rigid_objects["robot"] = self.robot
-        # self.scene.sensors["camera"] = self.camera
-        self.scene.sensors["ray_caster"] = self.ray_caster
+        self.scene.sensors["camera"] = self.camera
+        # self.scene.sensors["ray_caster"] = self.ray_caster
         light_cfg = sim_utils.DomeLightCfg(
             intensity=2000.0,
             color=(0.75, 0.75, 0.75),
         )
         light_cfg.func("/World/Light", light_cfg)
+
+    # def _setup_scene(self):
+    #     self.robot = RigidObject(self.cfg.robot)
+    #     # self.camera = Camera(self.cfg.camera)
+    #     self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
+    #     self.obstacle1 = RigidObject(self.cfg.obstacle1)
+    #     self.scene.rigid_objects["obstacle1"] = self.obstacle1
+    #     self.obstacle2 = RigidObject(self.cfg.obstacle2)
+    #     self.scene.rigid_objects["obstacle2"] = self.obstacle2
+    #     self.obstacle3 = RigidObject(self.cfg.obstacle3)
+    #     self.scene.rigid_objects["obstacle3"] = self.obstacle3
+    #     self.obstacle_long = RigidObject(self.cfg.obstacle_long)
+    #     self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
+    #     self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
+    #     self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
+    #     self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
+    #     self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
+    #     self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
+    #     self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
+    #     self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
+    #     self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
+    #     stage = self.sim.stage
+    #     barrier_path = "/World/envs/env_0/Robot/Barrier"
+    #     barrier = UsdGeom.Cube.Define(stage, barrier_path)
+    #     barrier.CreateSizeAttr(1.0)
+    #     xform = UsdGeom.Xformable(barrier.GetPrim())
+    #     xform.AddTranslateOp().Set(Gf.Vec3d(0.30, 0.0, 0.25))
+    #     xform.AddScaleOp().Set(Gf.Vec3d(0.025, 0.25, 0.25))
+    #     UsdPhysics.CollisionAPI.Apply(barrier.GetPrim())
+    #     UsdGeom.Imageable(barrier.GetPrim()).MakeInvisible()
+
+    #     spawn_ground_plane(
+    #         prim_path="/World/ground",
+    #         cfg=GroundPlaneCfg(
+    #             physics_material=sim_utils.RigidBodyMaterialCfg(
+    #                 static_friction=1.0,
+    #                 dynamic_friction=1.0,
+    #                 restitution=0.0,
+    #             ),
+    #         ),
+    #     )
+    #     self.scene.clone_environments(copy_from_source=False)
+    #     if self.device == "cpu":
+    #         self.scene.filter_collisions(global_prim_paths=["/World/ground"])
+    #     self.scene.rigid_objects["robot"] = self.robot
+    #     # self.scene.sensors["camera"] = self.camera
+    #     self.scene.sensors["ray_caster"] = self.ray_caster
+    #     light_cfg = sim_utils.DomeLightCfg(
+    #         intensity=2000.0,
+    #         color=(0.75, 0.75, 0.75),
+    #     )
+    #     light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
@@ -377,35 +393,35 @@ class UnicycleEnv(DirectRLEnv):
         local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
         local_ang_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_ang_vel_w)
         #ヒートマップ作成
-        # semantic = self.camera.data.output["semantic_segmentation"]
-        # depth = self.camera.data.output["distance_to_image_plane"]
-        # height_map = self.heightmap_generator.generate_from_depth(
-        #     depth,
-        #     self.camera,
-        #     root_pos_w,
-        #     robot_yaw,
-        #     semantic,
-        #     self.pushable_color,
-        # )
-        # self.current_heightmap = height_map
-        # height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
+        semantic = self.camera.data.output["semantic_segmentation"]
+        depth = self.camera.data.output["distance_to_image_plane"]
+        height_map = self.heightmap_generator.generate_from_depth(
+            depth,
+            self.camera,
+            root_pos_w,
+            robot_yaw,
+            semantic,
+            self.pushable_color,
+        )
+        self.current_heightmap = height_map
+        height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
 
         # ray_heightmap = torch.zeros(
         #     (self.num_envs, 1, 64, 64),
         #     device=self.device
         # )
-        ray_data = self.scene.sensors["ray_caster"].data
-        ray_hits_w = ray_data.ray_hits_w
+        # ray_data = self.scene.sensors["ray_caster"].data
+        # ray_hits_w = ray_data.ray_hits_w
         # ray_heightmap = self.ray_heightmap_generator.generate(
         #     ray_hits_w
         # )
         # ray_heightmap = ray_heightmap.squeeze(1)
-        ray_heightmap = self.heightmap_generator.generate_from_ray(
-            ray_hits_w,
-            root_pos_w,
-            robot_yaw
-        )
-        self.current_heightmap = ray_heightmap
+        # ray_heightmap = self.heightmap_generator.generate_from_ray(
+        #     ray_hits_w,
+        #     root_pos_w,
+        #     robot_yaw
+        # )
+        # self.current_heightmap = ray_heightmap
         # print("ray_heightmap:", ray_heightmap.shape)
 
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
@@ -420,7 +436,7 @@ class UnicycleEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": ray_heightmap}}
+        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": height_map}} #ray_heightmap
 
     def _get_rewards(self) -> torch.Tensor:
         # ==========================================
@@ -569,21 +585,38 @@ class UnicycleEnv(DirectRLEnv):
         ).sum(dim=(1, 2)) / self.personal_weight.sum()
         obstacle_occupancy = torch.clamp(obstacle_occupancy, max=0.5)
         target_speed = 1.0 - 1.4 * obstacle_occupancy                                   #占有率max50%で目標速度0.3m/s
-        speed = torch.clamp(self.actions[:, 0], 0.0, 1.0)
-        front_region = height[:,24:36,26:38]                                            #進行方向領域
-        personal_speed_reward = 1.0 - torch.abs(speed - target_speed) / target_speed
-        front_occupancy = (front_region >= 0.1).float().mean(dim=(1, 2))
-        front_blocked = front_occupancy > 0.1
-        stop_speed_reward = torch.where(
-            speed >= 0.0,
-            1.0 - speed,
-            torch.zeros_like(speed),
+        # front_region = height[:,24:36,26:38]                                            #進行方向領域
+        personal_speed_reward = 1.0 - torch.abs(self.actions[:, 0] - target_speed) / target_speed
+        # 過去の最短距離を更新できたか
+        best_improved = torch.where(
+            self.prev_goal_valid,
+            self.current_goal_dist < self.best_goal_dist - 0.01,
+            torch.zeros_like(self.current_goal_dist, dtype=torch.bool),
         )
-        blocked_speed_reward = torch.where(
-            front_blocked,
-            2.0 * stop_speed_reward,
-            0.2 * personal_speed_reward,
+        # 最短距離を更新できたらカウントをリセット
+        self.no_progress_count = torch.where(
+            best_improved,
+            torch.zeros_like(self.no_progress_count),
+            self.no_progress_count + 1,
         )
+        no_progress_done = self.no_progress_count >= self.no_progress_threshold
+        stop_reward = torch.where(
+            no_progress_done,
+            1.0 - torch.abs(self.actions[:, 0]),
+            torch.zeros_like(self.actions[:, 0]),
+        )
+        personal_stop_reward = torch.where(
+            no_progress_done,
+            stop_reward,
+            personal_speed_reward,
+        )
+        # 最短距離を更新
+        self.best_goal_dist = torch.where(
+            self.prev_goal_valid,
+            torch.minimum(self.best_goal_dist, self.current_goal_dist),
+            self.current_goal_dist,
+        )
+        self.prev_goal_valid[:] = True
         # ==========================================
         # 4. ゴール進行・到達・時間ボーナス
         # ==========================================
@@ -663,7 +696,6 @@ class UnicycleEnv(DirectRLEnv):
                 + 0.05 * back_reward                # 後進を誘発するための報酬
                 # --- 障害物関連（報酬・ペナルティ） ---
                 # + 0.1 * safe_reward                 # ロボット周囲に障害物がなければ微小報酬
-                + 5.0 * blocked_speed_reward                 # 前方と周囲の障害物に対する速度報酬
                 # --- スタック・回避関連 ---
                 - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
             )
@@ -686,7 +718,6 @@ class UnicycleEnv(DirectRLEnv):
                 + 5.0 * obstacle_pass_reward        # 障害物を無事に通過したときの報酬（1個につき5.0）
                 - 3.0 * obstacle_space_penalty      # ロボットに障害物が近いほど罰則
                 + 0.1 * safe_reward                 # ロボット周囲に障害物がなければ微小報酬
-                + 1.0 * blocked_speed_reward        # 前方と周囲の障害物に対する速度報酬
                 # --- スタック・回避関連 ---
                 + 2.0 * avoid_reward                # スタック状態からうまく脱出（旋回・後進）できたときの報酬
                 - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
@@ -696,8 +727,8 @@ class UnicycleEnv(DirectRLEnv):
         stage5 = self.obstacle_stages == 5
         reward_stage12 = (
             10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float()
-            + 0.05 * back_reward
-            + 1.0 * blocked_speed_reward
+            + 0.05 * back_reward  
+            + personal_stop_reward
             - 5.0 * stuck_penalty
         )
         reward_stage5 = (
@@ -715,109 +746,104 @@ class UnicycleEnv(DirectRLEnv):
             + 5.0 * obstacle_pass_reward
             - 3.0 * obstacle_space_penalty
             + 0.1 * safe_reward
-            # + 1.0 * blocked_speed_reward
+            + personal_stop_reward
             + 2.0 * avoid_reward
             - 5.0 * stuck_penalty
         )
         reward = torch.where(stage12, reward_stage12, reward_stage5)
-        print(
-            f"front_occ={front_occupancy[0].item():.2f} "
-            f"blocked={front_blocked[0].item()} "
-            f"speed={speed[0].item():.2f} "
-            f"blocked_speed={blocked_speed_reward[0].item():.2f} "
-            f"safe_stop={self.safe_stop_done[0].item()}"
-        )
+
         #actionログを10stepごとに出力
-        if self.common_step_counter % 10 == 0:
-            with open("/tmp/env0_action.log", "a") as f:
-                f.write(
-                    # f"front={front_occupancy[0].item():.2f} "
-                    # f"blocked={front_blocked[0].item()} "
-                    f"v={self.actions[0,0].item():.2f} "
-                    f"w={self.actions[0,1].item():.2f}\n"
-                )
-        # ==========================================
-        # Episode累積報酬
-        # ==========================================
-        self.episode_progress_reward += progress_reward
-        self.episode_goal_reward += goal_reward
-        self.episode_time_bonus += time_bonus
-        self.episode_forward_reward += forward_reward
-        self.episode_turn_reward += turn_reward
-        self.episode_back_reward += back_reward
-        self.episode_obstacle_penalty += obstacle_penalty
-        self.episode_obstacle_approach_penalty += obstacle_approach_penalty
-        self.episode_collision_penalty += collision_penalty
-        self.episode_obstacle_turn_reward += obstacle_turn_reward
-        self.episode_obstacle_pass_reward += obstacle_pass_reward
-        self.episode_obstacle_space_penalty += obstacle_space_penalty
-        self.episode_safe_reward += safe_reward
-        self.episode_blocked_speed_reward += blocked_speed_reward
-        self.episode_avoid_reward += avoid_reward
-        self.episode_stuck_penalty += stuck_penalty
-        
-        # ==========================================
-        # 1000 stepごとの報酬表示
-        # ==========================================
-        if self.common_step_counter % 1000 == 0:
-            tqdm.write(
-                f"[AVG] "
-                f"progress={progress_reward.mean().item():.3f} "
-                f"goal={goal_reward.mean().item():.3f} "
-                f"time={time_bonus.mean().item():.3f} "
-                f"forward={forward_reward.mean().item():.3f} "
-                f"turn={turn_reward.mean().item():.3f} "
-                f"back={back_reward.mean().item():.3f} "
-                f"obstacle={obstacle_penalty.mean().item():.3f} "
-                f"approach={obstacle_approach_penalty.mean().item():.3f} "
-                f"collision={collision_penalty.mean().item():.3f} "
-                f"obstacle_turn={obstacle_turn_reward.mean().item():.3f} "
-                f"obstacle_pass={obstacle_pass_reward.mean().item():.3f} "
-                f"space={obstacle_space_penalty.mean().item():.3f} "
-                f"safe={safe_reward.mean().item():.3f} "
-                f"blocked_speed={blocked_speed_reward.mean().item():.3f} "
-                f"avoid={avoid_reward.mean().item():.3f} "
-                f"stuck={stuck_penalty.mean().item():.3f}"
+        # if self.common_step_counter % 10 == 0:
+        with open("/tmp/env0_action.log", "a") as f:
+            f.write(
+                f"v={self.actions[0,0].item():+.2f} "
+                f"w={self.actions[0,1].item():+.2f} "
+                f"no_progress={self.no_progress_count[0].item():+.2f} "
+                f"no_progress_done={no_progress_done[0].item():+.2f} "
+                f"personal_stop_reward={personal_stop_reward[0].item():.2f} "
+                f"personal={obstacle_occupancy[0].item():.2f} "
+                f"stop_done={self.safe_stop_done[0].item()}\n "
             )
-            if self.last_episode_rewards is not None:
-                r = self.last_episode_rewards
-                tqdm.write(
-                    f"[ENV0 LAST EP] "
-                    f"progress={r['progress']:.2f} "
-                    f"goal={r['goal']:.2f} "
-                    f"time={r['time']:.2f} "
-                    f"forward={r['forward']:.2f} "
-                    f"turn={r['turn']:.2f} "
-                    f"back={r['back']:.2f} "
-                    f"obstacle={r['obstacle']:.2f} "
-                    f"approach={r['approach']:.2f} "
-                    f"collision={r['collision']:.2f} "
-                    f"obstacle_turn={r['obstacle_turn']:.2f} "
-                    f"obstacle_pass={r['obstacle_pass']:.2f} "
-                    f"space={r['space']:.2f} "
-                    f"safe={r['safe']:.2f} "
-                    f"blocked_speed={r['blocked_speed']:.2f} "
-                    f"avoid={r['avoid']:.2f} "
-                    f"stuck={r['stuck']:.2f}"
-                )
+        # # ==========================================
+        # # Episode累積報酬
+        # # ==========================================
+        # self.episode_progress_reward += progress_reward
+        # self.episode_goal_reward += goal_reward
+        # self.episode_time_bonus += time_bonus
+        # self.episode_forward_reward += forward_reward
+        # self.episode_turn_reward += turn_reward
+        # self.episode_back_reward += back_reward
+        # self.episode_obstacle_penalty += obstacle_penalty
+        # self.episode_obstacle_approach_penalty += obstacle_approach_penalty
+        # self.episode_collision_penalty += collision_penalty
+        # self.episode_obstacle_turn_reward += obstacle_turn_reward
+        # self.episode_obstacle_pass_reward += obstacle_pass_reward
+        # self.episode_obstacle_space_penalty += obstacle_space_penalty
+        # self.episode_safe_reward += safe_reward
+        # self.episode_blocked_speed_reward += blocked_speed_reward
+        # self.episode_avoid_reward += avoid_reward
+        # self.episode_stuck_penalty += stuck_penalty
+        
+        # # ==========================================
+        # # 1000 stepごとの報酬表示
+        # # ==========================================
+        # if self.common_step_counter % 1000 == 0:
+        #     tqdm.write(
+        #         f"[AVG] "
+        #         f"progress={progress_reward.mean().item():.3f} "
+        #         f"goal={goal_reward.mean().item():.3f} "
+        #         f"time={time_bonus.mean().item():.3f} "
+        #         f"forward={forward_reward.mean().item():.3f} "
+        #         f"turn={turn_reward.mean().item():.3f} "
+        #         f"back={back_reward.mean().item():.3f} "
+        #         f"obstacle={obstacle_penalty.mean().item():.3f} "
+        #         f"approach={obstacle_approach_penalty.mean().item():.3f} "
+        #         f"collision={collision_penalty.mean().item():.3f} "
+        #         f"obstacle_turn={obstacle_turn_reward.mean().item():.3f} "
+        #         f"obstacle_pass={obstacle_pass_reward.mean().item():.3f} "
+        #         f"space={obstacle_space_penalty.mean().item():.3f} "
+        #         f"safe={safe_reward.mean().item():.3f} "
+        #         f"blocked_speed={blocked_speed_reward.mean().item():.3f} "
+        #         f"avoid={avoid_reward.mean().item():.3f} "
+        #         f"stuck={stuck_penalty.mean().item():.3f}"
+        #     )
+        #     if self.last_episode_rewards is not None:
+        #         r = self.last_episode_rewards
+        #         tqdm.write(
+        #             f"[ENV0 LAST EP] "
+        #             f"progress={r['progress']:.2f} "
+        #             f"goal={r['goal']:.2f} "
+        #             f"time={r['time']:.2f} "
+        #             f"forward={r['forward']:.2f} "
+        #             f"turn={r['turn']:.2f} "
+        #             f"back={r['back']:.2f} "
+        #             f"obstacle={r['obstacle']:.2f} "
+        #             f"approach={r['approach']:.2f} "
+        #             f"collision={r['collision']:.2f} "
+        #             f"obstacle_turn={r['obstacle_turn']:.2f} "
+        #             f"obstacle_pass={r['obstacle_pass']:.2f} "
+        #             f"space={r['space']:.2f} "
+        #             f"safe={r['safe']:.2f} "
+        #             f"blocked_speed={r['blocked_speed']:.2f} "
+        #             f"avoid={r['avoid']:.2f} "
+        #             f"stuck={r['stuck']:.2f}"
+        #         )
 
         return reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        
         # 転倒判定（キューブの高さが低くなりすぎた場合など）
         root_height = self.robot.data.root_pos_w[:, 2]
         died = root_height < 0.2
-
         # ゴールに十分近づいたら成功終了
         reached_goal = self.current_goal_dist < 0.3
         time_out |= reached_goal
-
+        self.extras["reached_goal"] = reached_goal.clone()
+        self.extras["time_out"] = time_out.clone()
         # 1秒以上、前進しようとしているのに動かない
         stopped_too_long = self.stop_count >= self.stop_threshold
         terminated = died | stopped_too_long | self.safe_stop_done
-
         # ==========================================
         # env0のEpisode終了時に最終結果を保存
         # ==========================================
@@ -864,9 +890,10 @@ class UnicycleEnv(DirectRLEnv):
             env_ids = self.robot._ALL_INDICES
         self.robot.reset(env_ids)
         super()._reset_idx(env_ids)
-        is_stage12 = torch.rand(len(env_ids), device=self.device) < 0.2
-        self.obstacle_stages[env_ids[is_stage12]] = 12
-        self.obstacle_stages[env_ids[~is_stage12]] = 5
+        if self.obstacle_stage is None:
+            is_stage12 = torch.rand(len(env_ids), device=self.device) < 0.2
+            self.obstacle_stages[env_ids[is_stage12]] = 12
+            self.obstacle_stages[env_ids[~is_stage12]] = 5
         self.heightmap_generator.reset(env_ids)
 
 
@@ -1116,3 +1143,6 @@ class UnicycleEnv(DirectRLEnv):
         self.need_avoid_reward[env_ids] = False
         self.stop_count[env_ids] = 0
         self.safe_stop_done[env_ids] = False
+        self.best_goal_dist[env_ids] = 0.0
+        self.no_progress_count[env_ids] = 0
+        self.prev_goal_valid[env_ids] = False

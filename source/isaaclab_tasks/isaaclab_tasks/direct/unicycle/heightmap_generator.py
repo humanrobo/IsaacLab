@@ -22,15 +22,23 @@ class HeightMapGenerator:
         device="cuda",
         gui_enabled=False,
         gui_update_interval=10,
+        num_envs=1,
     ):
         self.resolution = resolution
         self.map_size = map_size
         self.map_W = int(map_size / resolution)
         self.map_H = int(map_size / resolution)
         self.device = device
-        self.prev_height_map = None
+        self.num_envs = num_envs
         self.prev_height_map = None
         self.prev_robot_pos = None
+        self.shift_accum_x = torch.zeros(self.num_envs, device=self.device)
+        self.shift_accum_y = torch.zeros(self.num_envs, device=self.device)
+        self.prev_valid = torch.zeros(
+            self.num_envs,
+            dtype=torch.bool,
+            device=self.device,
+        )
 
         # ============================================================
         # Gaussian kernel
@@ -264,6 +272,11 @@ class HeightMapGenerator:
             self.prev_height_map[env_ids] = 0.0
         if self.prev_robot_pos is not None:
             self.prev_robot_pos[env_ids] = 0.0
+        if self.prev_height_map is not None:
+            self.prev_height_map[env_ids] = 0.0
+        self.shift_accum_x[env_ids] = 0.0
+        self.shift_accum_y[env_ids] = 0.0
+        self.prev_valid[env_ids] = False
 
     # ================================================================
     # Generate
@@ -393,14 +406,26 @@ class HeightMapGenerator:
         if self.prev_height_map is None:
             persistent_height_maps = height_maps.clone()
             self.prev_robot_pos = robot_pos.clone()
-            self.prev_robot_yaw = robot_yaw.clone()
         else:
             persistent_height_maps = torch.zeros_like(height_maps)
             for env_id in range(N):
+                if not self.prev_valid[env_id]:
+                    persistent_height_maps[env_id] = height_maps[env_id].clone()
+                    self.prev_robot_pos[env_id] = robot_pos[env_id]
+                    self.prev_valid[env_id] = True
+                    continue
                 dx = robot_pos[env_id, 0] - self.prev_robot_pos[env_id, 0]
                 dy = robot_pos[env_id, 1] - self.prev_robot_pos[env_id, 1]
-                shift_x = torch.round(dx / self.resolution).long()
-                shift_y = torch.round(dy / self.resolution).long()
+                self.shift_accum_x[env_id] += dx
+                self.shift_accum_y[env_id] += dy
+                shift_x = torch.trunc(
+                    self.shift_accum_x[env_id] / self.resolution
+                ).long()
+                shift_y = torch.trunc(
+                    self.shift_accum_y[env_id] / self.resolution
+                ).long()
+                self.shift_accum_x[env_id] -= shift_x.float() * self.resolution
+                self.shift_accum_y[env_id] -= shift_y.float() * self.resolution
                 persistent_height_maps[env_id] = self.shift_height_map(
                     self.prev_height_map[env_id],
                     -shift_y.item(),
@@ -416,7 +441,6 @@ class HeightMapGenerator:
                 persistent_height_maps,
             )
             self.prev_robot_pos = robot_pos.clone()
-            self.prev_robot_yaw = robot_yaw.clone()
         self.prev_height_map = persistent_height_maps.clone()
         height_maps = persistent_height_maps
         height_maps = self.rotate_to_robot_frame(
@@ -497,22 +521,28 @@ class HeightMapGenerator:
         if self.prev_height_map is None:
             persistent_height_maps = height_maps.clone()
             self.prev_robot_pos = robot_pos.clone()
-            self.prev_robot_yaw = robot_yaw.clone()
         else:
             persistent_height_maps = torch.zeros_like(height_maps)
             for env_id in range(N):
+                if not self.prev_valid[env_id]:
+                    persistent_height_maps[env_id] = height_maps[env_id].clone()
+                    self.prev_robot_pos[env_id] = robot_pos[env_id]
+                    self.prev_valid[env_id] = True
+                    continue
                 dx = robot_pos[env_id, 0] - self.prev_robot_pos[env_id, 0]
                 dy = robot_pos[env_id, 1] - self.prev_robot_pos[env_id, 1]
-                delta_yaw = robot_yaw[env_id] - self.prev_robot_yaw[env_id]
-                prev_map = self.prev_height_map[env_id]
-                # prev_map = self.rotate_to_robot_frame(
-                #     self.prev_height_map[env_id].unsqueeze(0),
-                #     delta_yaw.unsqueeze(0),
-                # )[0]
-                shift_x = torch.round(dx / self.resolution).long()
-                shift_y = torch.round(dy / self.resolution).long()
+                self.shift_accum_x[env_id] += dx
+                self.shift_accum_y[env_id] += dy
+                shift_x = torch.trunc(
+                    self.shift_accum_x[env_id] / self.resolution
+                ).long()
+                shift_y = torch.trunc(
+                    self.shift_accum_y[env_id] / self.resolution
+                ).long()
+                self.shift_accum_x[env_id] -= shift_x.float() * self.resolution
+                self.shift_accum_y[env_id] -= shift_y.float() * self.resolution
                 persistent_height_maps[env_id] = self.shift_height_map(
-                    prev_map,
+                    self.prev_height_map[env_id],
                     -shift_y.item(),
                     +shift_x.item(),
                 )
@@ -528,7 +558,6 @@ class HeightMapGenerator:
             )
             # persistent_height_maps = torch.maximum(height_maps, persistent_height_maps)
             self.prev_robot_pos = robot_pos.clone()
-            self.prev_robot_yaw = robot_yaw.clone()
 
         self.prev_height_map = persistent_height_maps.clone()
         height_maps = persistent_height_maps
