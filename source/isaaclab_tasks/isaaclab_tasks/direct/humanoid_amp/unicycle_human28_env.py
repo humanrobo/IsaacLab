@@ -12,6 +12,7 @@ from .unicycle_human28_env_cfg import UnicycleHumanoid28EnvCfg
 from ..unicycle.heightmap_generator import HeightMapGenerator
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.markers.config import SPHERE_MARKER_CFG
+import ast
 
 class UnicyclePolicy(nn.Module):
     def __init__(self):
@@ -43,10 +44,11 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
     cfg: UnicycleHumanoid28EnvCfg
 
     def __init__(self, cfg, render_mode=None, **kwargs):
-        self.obstacle_stage = 1
+        self.obstacle_stage = 10
         self._unicycle_policy_path = "logs/skrl/unicycle_navigation/2026-09-29_15-01-37_ppo_torch/checkpoints/agent_30000.pt"
         self._unicycle_policy = None
         self._heightmap_generator = None
+        self.pushable_color = None
         self._unicycle_action = None
         super().__init__(cfg, render_mode, **kwargs)
         marker_cfg = SPHERE_MARKER_CFG.copy()
@@ -67,14 +69,14 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             param.requires_grad_(False)
         self.unicycle_running_mean = checkpoint["observation_preprocessor"]["running_mean"].to(self.device).float()
         self.unicycle_running_variance = checkpoint["observation_preprocessor"]["running_variance"].to(self.device).float()
-        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=True)
-        self._heightmap_generator = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False)
+        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False)
+        # self._heightmap_generator = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False)
         self._unicycle_action = torch.zeros(self.num_envs, 2, device=self.device)
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
-        self.unicycle = RigidObject(self.cfg.unicycle)
-        self.camera = Camera(self.cfg.camera)
+        # self.unicycle = RigidObject(self.cfg.unicycle)
+        # self.camera = Camera(self.cfg.camera)
         self.camera_humanoid = Camera(self.cfg.camera_humanoid)
         if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
             self.obstacle1 = RigidObject(self.cfg.obstacle1)
@@ -117,30 +119,37 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
         self.scene.articulations["robot"] = self.robot
-        self.scene.rigid_objects["unicycle"] = self.unicycle
-        self.scene.sensors["camera"] = self.camera
+        # self.scene.rigid_objects["unicycle"] = self.unicycle
+        # self.scene.sensors["camera"] = self.camera
         self.scene.sensors["camera_humanoid"] = self.camera_humanoid
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = torch.clamp(actions, -1.0, 1.0)
-        self._compute_unicycle_action()
         self._update_humanoid_heightmap()
+        self._compute_unicycle_action()
+        #semseg各クラスがID割り当てられたときに、pushableのIDを探す
+        if self.pushable_color is None:
+            semantic_info = self.camera_humanoid.data.info[0]["semantic_segmentation"]["idToLabels"]
+            self.pushable_color = next(
+                ast.literal_eval(k) for k, v in semantic_info.items()
+                if v.get("class") == "pushable"
+            )
 
-    def _apply_action(self):
-        target = self.action_offset + self.action_scale * self.actions
-        self.robot.set_joint_position_target(target)
-        v = self._unicycle_action[:, 0]
-        omega = self._unicycle_action[:, 1]
-        _, _, yaw = euler_xyz_from_quat(self.unicycle.data.root_quat_w)
-        vx = v * torch.cos(yaw)
-        vy = v * torch.sin(yaw)
-        root_velocity = torch.zeros(self.num_envs, 6, device=self.device)
-        root_velocity[:, 0] = 0.0#vx
-        root_velocity[:, 1] = 0.0#vy
-        root_velocity[:, 5] = 0.0#omega
-        self.unicycle.write_root_com_velocity_to_sim(root_velocity)
+    # def _apply_action(self):
+    #     target = self.action_offset + self.action_scale * self.actions
+    #     self.robot.set_joint_position_target(target)
+    #     v = self._unicycle_action[:, 0]
+    #     omega = self._unicycle_action[:, 1]
+    #     _, _, yaw = euler_xyz_from_quat(self.unicycle.data.root_quat_w)
+    #     vx = v * torch.cos(yaw)
+    #     vy = v * torch.sin(yaw)
+    #     root_velocity = torch.zeros(self.num_envs, 6, device=self.device)
+    #     root_velocity[:, 0] = vx
+    #     root_velocity[:, 1] = vy
+    #     root_velocity[:, 5] = omega
+    #     self.unicycle.write_root_com_velocity_to_sim(root_velocity)
 
     def _update_humanoid_heightmap(self):
         humanoid_pos_w = self.robot.data.root_pos_w
@@ -154,17 +163,18 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             humanoid_pos_w,
             humanoid_yaw,
             semantic,
-            None,
+            self.pushable_color,
         )
         self.humanoid_heightmap = height_map
 
     def _compute_unicycle_action(self):
-        root_pos_w = self.unicycle.data.root_pos_w
-        root_quat_w = self.unicycle.data.root_quat_w
-        root_lin_vel_w = self.unicycle.data.root_lin_vel_w
-        root_ang_vel_w = self.unicycle.data.root_ang_vel_w
+        root_pos_w = self.robot.data.root_pos_w
+        root_quat_w = self.robot.data.root_quat_w
+        root_lin_vel_w = self.robot.data.root_lin_vel_w
+        root_ang_vel_w = self.robot.data.root_ang_vel_w
         _, _, robot_yaw = euler_xyz_from_quat(root_quat_w)
-        goal_pos_w = self.scene.env_origins[:, :2] + torch.tensor([6.0, 0.0], device=self.device)
+        self.goal_pos_w = self.scene.env_origins[:, :2] + torch.tensor([6.0, 0.0], device=self.device)
+        goal_pos_w = self.goal_pos_w
         marker_pos_w = torch.cat([goal_pos_w, torch.full((self.num_envs, 1), 0.2, device=self.device)], dim=-1)
         marker_quat = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
         self.goal_marker.visualize(marker_pos_w, marker_quat)
@@ -177,6 +187,9 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         self.front_marker.visualize(front_marker_pos, marker_quat)
         local_lin_vel = quat_apply_inverse(yaw_quat(root_quat_w), root_lin_vel_w)
         local_ang_vel = quat_apply_inverse(yaw_quat(root_quat_w), root_ang_vel_w)
+        local_lin_vel[:, 2] = 0.0
+        local_ang_vel[:, 0] = 0.0
+        local_ang_vel[:, 1] = 0.0
         goal_vec_w = goal_pos_w - root_pos_w[:, :2]
         goal_vec_3d = torch.cat([goal_vec_w, torch.zeros(self.num_envs, 1, device=self.device)], dim=-1)
         goal_vec_local = quat_apply_inverse(yaw_quat(root_quat_w), goal_vec_3d)[:, :2]
@@ -192,12 +205,13 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             heading_cos.unsqueeze(-1),
             goal_vec_local,
         ), dim=-1)
-        depth = self.camera.data.output["distance_to_image_plane"]
-        semantic = self.camera.data.output["semantic_segmentation"]
-        height_map = self._heightmap_generator.generate_from_depth(
-            depth, self.camera, root_pos_w, robot_yaw, semantic, None
-        )
-        height_map = height_map.unsqueeze(1)
+        # depth = self.camera.data.output["distance_to_image_plane"]
+        # semantic = self.camera.data.output["semantic_segmentation"]
+        # height_map = self._heightmap_generator.generate_from_depth(
+        #     depth, self.camera, root_pos_w, robot_yaw, semantic, None
+        # )
+        # height_map = height_map.unsqueeze(1)
+        height_map = self.humanoid_heightmap.unsqueeze(1)
         flat_obs = torch.cat([policy_obs, height_map.flatten(1)], dim=-1)
         assert flat_obs.shape[1] == self.unicycle_running_mean.shape[0], (
             f"Unicycle observation size mismatch: {flat_obs.shape[1]} != {self.unicycle_running_mean.shape[0]}"
@@ -210,10 +224,19 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         self._unicycle_action[:, 0] = torch.clamp(self._unicycle_action[:, 0], -1.0, 1.0)
         self._unicycle_action[:, 1] = torch.clamp(self._unicycle_action[:, 1], -1.0, 1.0)
         self._unicycle_action[:, 0] *= 1.0
-        self._unicycle_action[:, 1] *= 2.0
+        self._unicycle_action[:, 1] *= 1.0
         prediction_time = 0.5
-        self.goal_yaw = robot_yaw #+ self._unicycle_action[:, 1] * prediction_time
+        turn_scale = 0.3
+        self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] * prediction_time #n* turn_scale #n
         self.goal_yaw = torch.atan2(torch.sin(self.goal_yaw), torch.cos(self.goal_yaw))
+
+    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
+        died, time_out = super()._get_dones()
+        root_pos_w = self.robot.data.root_pos_w
+        goal_dist = torch.norm(self.goal_pos_w - root_pos_w[:, :2], dim=1)
+        goal_reached = goal_dist < 0.3
+        died |= goal_reached
+        return died, time_out
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         if env_ids is None:
@@ -226,11 +249,42 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             obstacle1_state = self.obstacle1.data.default_root_state[env_ids].clone()
             obstacle1_state[:, :3] = self.scene.env_origins[env_ids] + torch.tensor([2.5, 0.0, 0.25], device=self.device)
             self.obstacle1.write_root_pose_to_sim(obstacle1_state[:, :7], env_ids)
+        elif self.obstacle_stage == 5:
+            # 障害物4個・ランダム位置
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3, self.obstacle_long]:
+                pos = torch.zeros((num_envs, 3), device=self.device)
+                pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(-0.5, 4.5)
+                pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-3.5, 3.5)
+                pos[:, 2] = 0.25
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
         elif self.obstacle_stage == 7:
             for obstacle in [self.obstacle1, self.obstacle2]:
                 pos = torch.zeros((num_envs, 3), device=self.device)
                 pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(1.0, 5.0)
                 pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-1.5, 1.5)
+                pos[:, 2] = 0.25
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
+            for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
+                wall_state = wall.data.default_root_state[env_ids].clone()
+                wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
+                wall.write_root_pose_to_sim(wall_state[:, :7], env_ids)
+        elif self.obstacle_stage == 10:
+            obstacles = [
+                self.obstacle_pushable1,
+                self.obstacle1,
+                self.obstacle_pushable2,
+                self.obstacle2,
+                self.obstacle_pushable3,
+            ]
+            ys = [-1.4, -0.7, 0.0, 0.7, 1.4]
+            for obstacle, y in zip(obstacles, ys):
+                pos = torch.zeros((num_envs, 3), device=self.device)
+                pos[:, 0] = 3.0
+                pos[:, 1] = y
                 pos[:, 2] = 0.25
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]

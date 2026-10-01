@@ -39,6 +39,7 @@ class HeightMapGenerator:
             dtype=torch.bool,
             device=self.device,
         )
+        self.gui_update_counter = 0
 
         # ============================================================
         # Gaussian kernel
@@ -447,8 +448,12 @@ class HeightMapGenerator:
             height_maps,
             robot_yaw - torch.pi / 2,
         )
-        if self.gui_enabled:
+        # if self.gui_enabled:
+        #     self.update_gui(height_maps, robot_pos)
+        #uncycle_humanoidではgui表示で重くて歩行失敗するので間引く
+        if self.gui_enabled and self.gui_update_counter % 50 == 0:
             self.update_gui(height_maps, robot_pos)
+        self.gui_update_counter += 1
         return height_maps
 
     # ================================================================

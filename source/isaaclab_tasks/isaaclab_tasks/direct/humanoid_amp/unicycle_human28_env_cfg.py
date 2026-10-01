@@ -34,24 +34,24 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
         },
     ).replace(
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(-1.0, 0.0, 0.4),
+            pos=(0.0, 0.0, 0.5),
         )
     )
-    unicycle: RigidObjectCfg = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/Unicycle",
-        spawn=sim_utils.CylinderCfg(
-            radius=0.25,
-            height=0.5,
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.0, 0.4, 0.8)
-            ),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.0, 0.0, 0.25),
-        ),
-    )
+    # unicycle: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="/World/envs/env_.*/Unicycle",
+    #     spawn=sim_utils.CylinderCfg(
+    #         radius=0.25,
+    #         height=0.5,
+    #         visual_material=sim_utils.PreviewSurfaceCfg(
+    #             diffuse_color=(0.0, 0.4, 0.8)
+    #         ),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(0.0, 0.0, 0.25),
+    #     ),
+    # )
     camera_humanoid = CameraCfg(
         prim_path="/World/envs/env_.*/Humanoid/head/Camera",
         update_period=0.0,
@@ -73,27 +73,27 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
             convention="ros",
         ),
     )
-    camera = CameraCfg(
-        prim_path="/World/envs/env_.*/Unicycle/Camera",
-        update_period=0.0,
-        height=64,
-        width=64,
-        data_types=[
-            "rgb",
-            "distance_to_image_plane",
-            "semantic_segmentation",
-        ],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0,
-            focus_distance=400.0,
-            horizontal_aperture=20.955,
-        ),
-        offset=CameraCfg.OffsetCfg(
-            pos=(0.25, 0.0, 0.0),
-            rot=(-0.5, 0.5, -0.5, 0.5),
-            convention="ros",
-        ),
-    )
+    # camera = CameraCfg(
+    #     prim_path="/World/envs/env_.*/Unicycle/Camera",
+    #     update_period=0.0,
+    #     height=64,
+    #     width=64,
+    #     data_types=[
+    #         "rgb",
+    #         "distance_to_image_plane",
+    #         "semantic_segmentation",
+    #     ],
+    #     spawn=sim_utils.PinholeCameraCfg(
+    #         focal_length=24.0,
+    #         focus_distance=400.0,
+    #         horizontal_aperture=20.955,
+    #     ),
+    #     offset=CameraCfg.OffsetCfg(
+    #         pos=(0.25, 0.0, 0.0),
+    #         rot=(-0.5, 0.5, -0.5, 0.5),
+    #         convention="ros",
+    #     ),
+    # )
     unicycle_observation_space = {
         "policy_obs": 10,
         "ray_heightmap": [1, 64, 64],
@@ -103,7 +103,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle1 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle1",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(0.5, 0.5, 2.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -117,7 +117,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle2 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle2",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(0.5, 0.5, 2.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -131,7 +131,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle3 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle3",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(0.5, 0.5, 2.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -144,7 +144,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle_long = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstaclelong",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 2.0, 0.5),
+            size=(0.5, 2.0, 2.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -157,7 +157,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle_wallr = RigidObjectCfg(
         prim_path="/World/envs/env_.*/ObstacleWallR",
         spawn=sim_utils.CuboidCfg(
-            size=(8.0, 0.5, 0.5),
+            size=(8.0, 0.5, 2.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -170,7 +170,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle_walll = RigidObjectCfg(
         prim_path="/World/envs/env_.*/ObstacleWallL",
         spawn=sim_utils.CuboidCfg(
-            size=(8.0, 0.5, 0.5),
+            size=(8.0, 0.5, 2.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -183,7 +183,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle_pushable1 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle1",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 0.5),
+            size=(0.5, 0.4, 1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
@@ -197,7 +197,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle_pushable2 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle2",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 0.5),
+            size=(0.5, 0.4, 1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
@@ -211,7 +211,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle_pushable3 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle3",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 0.5),
+            size=(0.5, 0.4, 1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),

@@ -74,7 +74,6 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.action_scale = dof_upper_limits - dof_lower_limits
         self.left_shin_idx = self.robot.body_names.index("left_shin")
         self.right_shin_idx = self.robot.body_names.index("right_shin")
-        self.next_goal_change_step = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
 
         #footstep_targetsの初期化
         self.footstep_targets = torch.zeros(
@@ -464,7 +463,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         #     self.goal_yaw[env_ids] = (
         #         torch.rand(len(env_ids), device=self.device)
         #         * 2.0 * torch.pi
-        #         -nit torch.pi
+        #         - torch.pi
         #     )
         # self.goal_yaw[env_ids] = (
         #     torch.rand(len(env_ids), device=self.device)
@@ -474,16 +473,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         # 追加 初期の目標の向きをランダムにしている
         # self.goal_yaw[env_ids] = torch.pi*0.55
         # self.goal_yaw[env_ids] = torch.pi / 3
-        min_interval = int(0.5 / (self.cfg.sim.dt * self.cfg.decimation))
-        max_interval = int(1.5 / (self.cfg.sim.dt * self.cfg.decimation))
-        self.next_goal_change_step[env_ids] = self.episode_length_buf[env_ids] + torch.randint(min_interval, max_interval + 1, (len(env_ids),), device=self.device)
-        mask = self.episode_length_buf >= self.next_goal_change_step
-        num = int(mask.sum().item())
-        if num > 0:
-            delta_yaw = (torch.rand(num, device=self.device) * 2 - 1) * (torch.pi / 3)
-            self.goal_yaw[mask] += delta_yaw
-            self.goal_yaw[mask] = torch.atan2(torch.sin(self.goal_yaw[mask]), torch.cos(self.goal_yaw[mask]))
-            self.next_goal_change_step[mask] = self.episode_length_buf[mask] + torch.randint(min_interval, max_interval + 1, (num,), device=self.device)
+
     # reset strategies
 
     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
