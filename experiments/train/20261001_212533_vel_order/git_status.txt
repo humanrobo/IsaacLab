@@ -1,0 +1,37 @@
+ブランチ matsuno-work
+Your branch is up to date with 'origin/matsuno-work'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   scripts/reinforcement_learning/skrl/play_defo.py
+	modified:   scripts/reinforcement_learning/skrl/robot_state_latest.pt
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+
+追跡されていないファイル:
+  (use "git add <file>..." to include in what will be committed)
+	experiments/train/20261001_125751_vel_order/
+	experiments/train/20261001_125908_vel_order/
+	experiments/train/20261001_130135_vel_order/
+	experiments/train/20261001_132709_vel_order/
+	experiments/train/20261001_132741_vel_order/
+	experiments/train/20261001_133902_vel_order/
+	experiments/train/20261001_140310_vel_order/
+	experiments/train/20261001_141417_vel_order/
+	experiments/train/20261001_142430_vel_order/
+	experiments/train/20261001_142624_vel_order/
+	experiments/train/20261001_144708_vel_order/
+	experiments/train/20261001_150304_vel_order/
+	experiments/train/20261001_150804_vel_order/
+	experiments/train/20261001_154614_vel_order/
+	experiments/train/20261001_183622_vel_order/
+	experiments/train/20261001_190631_vel_order/
+	experiments/train/20261001_200131_vel_order/
+	experiments/train/20261001_203640_vel_order/
+	experiments/train/20261001_205409_vel_order/
+	experiments/train/20261001_211434_vel_order/
+	experiments/train/20261001_212533_vel_order/
+
+no changes added to commit (use "git add" and/or "git commit -a")

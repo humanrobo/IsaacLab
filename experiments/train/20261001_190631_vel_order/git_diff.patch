@@ -1,0 +1,393 @@
+diff --git a/scripts/reinforcement_learning/skrl/play_defo.py b/scripts/reinforcement_learning/skrl/play_defo.py
+index 7ef63a23b..15fd8f19f 100644
+--- a/scripts/reinforcement_learning/skrl/play_defo.py
++++ b/scripts/reinforcement_learning/skrl/play_defo.py
+@@ -178,6 +178,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+ 
+     # create isaac environment
+     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
++    
++    # 10体のロボットにそれぞれ異なる目標速度を設定する
++    # target_vs = torch.tensor(
++    #     [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
++    #     device=env.unwrapped.device,
++    # )
++    # env.unwrapped.target_v[:] = target_vs
++    # env.unwrapped.target_omega[:] = 0.0
+ 
+     # convert to single-agent instance if required by the RL algorithm
+     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 47fd00cf2..49689a4af 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:5b8ab55278d257b3a93f65786b58d55c95f51ee7b44f7e2e0ed530557c28921b
++oid sha256:b3012ebf7324a2af3f0ae3aee702983ffc70c43ad31e987c21ffee95fa33ff6b
+ size 3616
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+index 6d9204e21..2b42a6dcd 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+@@ -91,7 +91,7 @@ agent:
+   value_loss_scale: 2.5
+   discriminator_loss_scale: 5.0
+   amp_batch_size: 512
+-  task_reward_scale: 0.5 #テスト
++  task_reward_scale: 0.5  #テスト
+   style_reward_scale: 1.0
+   # task_reward_scale: 0.2 # task_reward_weight → task_reward_scale
+   # style_reward_scale: 1.0                   # style_reward_weight → style_reward_scale
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 07893d08a..c182b7818 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -75,6 +75,18 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.left_shin_idx = self.robot.body_names.index("left_shin")
+         self.right_shin_idx = self.robot.body_names.index("right_shin")
+         self.next_goal_change_step = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
++        self.target_v = torch.zeros(self.num_envs, device=self.device)
++        self.target_omega = torch.zeros(self.num_envs, device=self.device)
++        self.next_command_step = torch.zeros(
++            self.num_envs,
++            device=self.device,
++            dtype=torch.long,
++        )
++        # ロボットを横一列に並べる
++        # self.scene.env_origins[:, 0] = 0.0
++        # self.scene.env_origins[:, 1] = (
++        #     torch.arange(self.num_envs, device=self.device) - (self.num_envs - 1) / 2
++        # ) * 2.0
+ 
+         #footstep_targetsの初期化
+         self.footstep_targets = torch.zeros(
+@@ -186,16 +198,6 @@ class HumanoidAmpEnv(DirectRLEnv):
+ 
+         _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
+ 
+-        # goal_yaw = torch.zeros_like(robot_yaw)
+-
+-        heading_error = self.goal_yaw - robot_yaw
+-        heading_error = torch.atan2(
+-            torch.sin(heading_error),
+-            torch.cos(heading_error)
+-        )
+-        heading_sin = torch.sin(heading_error)
+-        heading_cos = torch.cos(heading_error)
+-        self.heading_error = heading_error
+ 
+ # -----------------------------------------------------------
+         # 3. すべてのデータを「Yawをキャンセルしたローカル座標系」に変換
+@@ -214,6 +216,9 @@ class HumanoidAmpEnv(DirectRLEnv):
+             key_pos_w,
+         )
+ 
++        velocity_error = self.target_v - local_lin_vel[:, 0]
++        omega_error = self.target_omega - local_ang_vel[:, 2]
++
+         policy_obs = compute_policy_obs(
+             self.robot.data.joint_pos,
+             self.robot.data.joint_vel,
+@@ -222,9 +227,8 @@ class HumanoidAmpEnv(DirectRLEnv):
+             local_lin_vel,
+             local_ang_vel,
+             local_key_pos,
+-            heading_sin,
+-            heading_cos,
+-            # self.footstep_targets,
++            velocity_error,
++            omega_error,
+         )
+ 
+         # -----------------------------------------------------------
+@@ -252,8 +256,6 @@ class HumanoidAmpEnv(DirectRLEnv):
+             local_lin_vel,
+             local_ang_vel,
+             local_key_pos,
+-            torch.zeros_like(heading_sin),
+-            torch.ones_like(heading_cos),
+         )
+ 
+         #入力変数の形状を確認するためのデバッグ出力
+@@ -305,20 +307,35 @@ class HumanoidAmpEnv(DirectRLEnv):
+                         output_path,  # フルパスを指定して保存
+                     )
+ 
++        if self.episode_length_buf[0] % 30 == 0:
++            with open("/tmp/env0_velocity.txt", "w") as f:
++                f.write(
++                    f"Target v     : {self.target_v[0].item():.3f} m/s\n"
++                    f"Current v    : {local_lin_vel[0, 0].item():.3f} m/s\n"
++                    f"Target omega : {self.target_omega[0].item():.3f} rad/s\n"
++                    f"Current omega: {local_ang_vel[0, 2].item():.3f} rad/s\n"
++                )
++
+         return {"policy": policy_obs}
+ 
+     def _get_rewards(self) -> torch.Tensor:
+-        # root速度
++        # -----------------------------------------------------------
++        # 1. root速度
++        # -----------------------------------------------------------
+         root_lin_vel = self.robot.data.body_lin_vel_w[:, self.ref_body_index]
+-        # 高さ報酬
++        root_ang_vel = self.robot.data.body_ang_vel_w[:, self.ref_body_index]
++        # -----------------------------------------------------------
++        # 2. 高さ報酬
++        # -----------------------------------------------------------
+         root_height = self.robot.data.body_pos_w[:, self.ref_body_index, 2]
+         height_reward = torch.exp(
+             -5.0 * (root_height - 1.0) ** 2
+         )
+-        # root姿勢からyaw取得
++        # -----------------------------------------------------------
++        # 3. ロボット前方向速度
++        # -----------------------------------------------------------
+         root_quat = self.robot.data.body_quat_w[:, self.ref_body_index]
+         _, _, yaw = euler_xyz_from_quat(root_quat)
+-        # ロボット前方向
+         forward_dir = torch.stack(
+             [
+                 torch.cos(yaw),
+@@ -326,79 +343,42 @@ class HumanoidAmpEnv(DirectRLEnv):
+             ],
+             dim=-1,
+         )
+-        # ロボット前方向速度
+         forward_speed = torch.sum(
+             root_lin_vel[:, :2] * forward_dir,
+             dim=-1,
+         )
+-        target_speed = 0.7
+-        # 前進速度報酬
+-        forward_reward = torch.exp(
+-            -(forward_speed - target_speed) ** 2
+-        )
+-        # observationで計算済みのheading_errorを使用
+-        heading_reward = torch.exp(
+-            -2.0 * self.heading_error ** 2
+-        )
+-        # 方向が合っている時だけ前進報酬を有効化
+-        forward_reward = forward_reward * heading_reward
+-
+-        #足の位置誤差-----------------------------------------------------------------------
+-        left_foot_pos_w = self.robot.data.body_pos_w[:, self.key_body_indexes[3]]
+-        right_foot_pos_w = self.robot.data.body_pos_w[:, self.key_body_indexes[2]]
+-        root_pos_w = self.robot.data.body_pos_w[:, self.ref_body_index]
+-        root_rot_w = self.robot.data.body_quat_w[:, self.ref_body_index]
+-        left_foot_local = localize_footstep(left_foot_pos_w, root_pos_w,root_rot_w,)
+-        right_foot_local = localize_footstep(right_foot_pos_w,root_pos_w,root_rot_w,)
+-        left_contact = left_foot_pos_w[:,2] < 0.05
+-        right_contact = right_foot_pos_w[:,2] < 0.05
+-        left_landing = left_contact & (~self.prev_left_contact)
+-        right_landing = right_contact & (~self.prev_right_contact)
+-        self.left_landing_pos[left_landing] = left_foot_local[left_landing,:2]
+-        self.right_landing_pos[right_landing] = right_foot_local[right_landing,:2]
+-
+-        left_error = torch.norm(
+-            self.left_landing_pos
+-            - self.footstep_targets[:,0:2],
+-            dim=-1,
+-        )
+-        right_error = torch.norm(
+-            self.right_landing_pos
+-            - self.footstep_targets[:,2:4],
+-            dim=-1,
+-        )
+-        landed = left_landing | right_landing
+-        footstep_reward = torch.zeros(
+-            self.num_envs,
+-            device=self.device
+-        )
+-        footstep_reward[left_landing] += torch.exp(
+-            -10.0 * left_error[left_landing]
++        # -----------------------------------------------------------
++        # 4. 目標速度との誤差
++        # -----------------------------------------------------------
++        velocity_error = self.target_v - forward_speed
++        velocity_reward = torch.exp(
++            -5.0 * velocity_error ** 2
+         )
+-        footstep_reward[right_landing] += torch.exp(
+-            -10.0 * right_error[right_landing]
++        # -----------------------------------------------------------
++        # 5. 目標角速度との誤差
++        # -----------------------------------------------------------
++        angular_velocity = root_ang_vel[:, 2]
++        omega_error = self.target_omega - angular_velocity
++        omega_reward = torch.exp(
++            -5.0 * omega_error ** 2
+         )
+-
+-        # 報酬の合成---------------------------------------------------------------------------
++        # -----------------------------------------------------------
++        # 6. 報酬の合成
++        # -----------------------------------------------------------
+         reward = (
+-            1.0 * forward_reward
++            1.0 * velocity_reward
++            + 2.0 * omega_reward
+             + 0.5 * height_reward
+-            + 0.5 * footstep_reward
+-            # + 0.5 * heading_reward
+         )
+ 
+-        self.prev_left_contact = left_contact
+-        self.prev_right_contact = right_contact
+-
+         # 1000ステップごとにログを出力
+         if self.common_step_counter % 1000 == 0:
+             tqdm.write(
+                 f"step={self.common_step_counter} "
+                 f"height={root_height.mean().item():.3f} "
+-                f"forward={forward_reward.mean().item():.3f} "
++                f"velocity={velocity_reward.mean().item():.3f} "
++                f"omega={omega_reward.mean().item():.3f} "
+                 f"height_r={height_reward.mean().item():.3f} "
+-                f"heading={heading_reward.mean().item():.3f}"
+-                f"footstep={footstep_reward.mean().item():.3f}"
+             )
+ 
+         return reward
+@@ -445,45 +425,29 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.prev_right_contact[env_ids] = False
+         self.left_landing_pos[env_ids] = 0.0
+         self.right_landing_pos[env_ids] = 0.0
+-        # if self.use_biased_yaw:
+-        #     # 1. 確率分布に従って、各環境が担当する Bin (0 ~ 9) をサンプリング
+-        #     # replacement=True で重複を許して環境の数だけ引く
+-        #     chosen_bins = torch.multinomial(self.yaw_bin_probs, len(env_ids), replacement=True)
+-            
+-        #     # 2. 選ばれたBinの左端の角度を計算 (-pi からスタートして 10等分)
+-        #     bin_width = 2.0 * torch.pi / 10.0
+-        #     low_angles = -torch.pi + chosen_bins.float() * bin_width
+-            
+-        #     # 3. Binの範囲内（low_angles 〜 low_angles + bin_width）で一様ランダムなノイズを加える
+-        #     # これにより「特定のBinの中のどこか」に綺麗に分散させる
+-        #     rand_offset = torch.rand(len(env_ids), device=self.device) * bin_width
+-        #     self.goal_yaw[env_ids] = low_angles + rand_offset
+-            
+-        # else:
+-        #     # ファイルがない場合は従来通りの完全一様ランダム
+-        #     self.goal_yaw[env_ids] = (
+-        #         torch.rand(len(env_ids), device=self.device)
+-        #         * 2.0 * torch.pi
+-        #         -nit torch.pi
+-        #     )
+-        # self.goal_yaw[env_ids] = (
+-        #     torch.rand(len(env_ids), device=self.device)
+-        #     * 2.0 * torch.pi
+-        #     - torch.pi
+-        # )#世界座標基準（ワールド基準）の yaw
+-        # 追加 初期の目標の向きをランダムにしている
+-        # self.goal_yaw[env_ids] = torch.pi*0.55
+-        # self.goal_yaw[env_ids] = torch.pi / 3
+-        min_interval = int(0.5 / (self.cfg.sim.dt * self.cfg.decimation))
+-        max_interval = int(1.5 / (self.cfg.sim.dt * self.cfg.decimation))
+-        self.next_goal_change_step[env_ids] = self.episode_length_buf[env_ids] + torch.randint(min_interval, max_interval + 1, (len(env_ids),), device=self.device)
+-        mask = self.episode_length_buf >= self.next_goal_change_step
++
++        # self.target_v[env_ids] = 1.0
++        # self.target_omega[env_ids] = 0.0
++        min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        mask = self.episode_length_buf >= self.next_command_step
+         num = int(mask.sum().item())
+         if num > 0:
+-            delta_yaw = (torch.rand(num, device=self.device) * 2 - 1) * (torch.pi / 3)
+-            self.goal_yaw[mask] += delta_yaw
+-            self.goal_yaw[mask] = torch.atan2(torch.sin(self.goal_yaw[mask]), torch.cos(self.goal_yaw[mask]))
+-            self.next_goal_change_step[mask] = self.episode_length_buf[mask] + torch.randint(min_interval, max_interval + 1, (num,), device=self.device)
++            self.target_v[mask] = (
++                torch.rand(num, device=self.device) * 0.5 + 0.5
++            )
++            self.target_omega[mask] = (
++                torch.rand(num, device=self.device) * 2.0 - 1.0
++            )
++            self.next_command_step[mask] = (
++                self.episode_length_buf[mask]
++                + torch.randint(
++                    min_interval,
++                    max_interval + 1,
++                    (num,),
++                    device=self.device,
++                )
++            )
+     # reset strategies
+ 
+     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+@@ -576,8 +540,6 @@ class HumanoidAmpEnv(DirectRLEnv):
+             local_lin_vel,
+             local_ang_vel,
+             local_key_pos,
+-            zeros,
+-            ones,
+         )
+ 
+         return amp_observation.view(-1, self.amp_observation_size)
+@@ -671,9 +633,8 @@ def compute_policy_obs(
+     root_angular_velocities: torch.Tensor,
+     key_body_positions: torch.Tensor,
+     #追加
+-    heading_sin: torch.Tensor,
+-    heading_cos: torch.Tensor,
+-    # footstep_targets: torch.Tensor,
++    velocity_error,
++    omega_error,
+ ) -> torch.Tensor:
+     obs = torch.cat(
+         (
+@@ -685,9 +646,8 @@ def compute_policy_obs(
+             root_angular_velocities,
+             key_body_positions.view(key_body_positions.shape[0], -1),
+             #追加
+-            heading_sin.unsqueeze(-1),
+-            heading_cos.unsqueeze(-1),
+-            # footstep_targets,
++            velocity_error.unsqueeze(-1),
++            omega_error.unsqueeze(-1),
+         ),
+         dim=-1,
+     )
+@@ -702,9 +662,6 @@ def compute_amp_obs(
+     root_linear_velocities: torch.Tensor,
+     root_angular_velocities: torch.Tensor,
+     key_body_positions: torch.Tensor,
+-    #追加
+-    heading_sin: torch.Tensor,
+-    heading_cos: torch.Tensor,
+ ) -> torch.Tensor:
+     obs = torch.cat(
+         (
+@@ -715,9 +672,6 @@ def compute_amp_obs(
+             root_linear_velocities,
+             root_angular_velocities,
+             key_body_positions.view(key_body_positions.shape[0], -1),
+-            #追加
+-            heading_sin.unsqueeze(-1),
+-            heading_cos.unsqueeze(-1),
+         ),
+         dim=-1,
+     )
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+index b87eafe45..023759b8b 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+@@ -33,14 +33,14 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
+     action_space = 28
+     state_space = 0
+     num_amp_observations = 2
+-    amp_observation_space = 83#次元を2+4つ追加
++    amp_observation_space = 81#次元を2+4つ追加
+ 
+     early_termination = True
+     termination_height = 0.5
+ 
+     motion_file: str = MISSING
+     reference_body = "torso"
+-    reset_strategy = "default"  # default, random, random-start
++    reset_strategy = "random"  # default, random, random-start
+     """Strategy to be followed when resetting each environment (humanoid's pose and joint states).
+ 
+     * default: pose and joint states are set to the initial state of the asset.

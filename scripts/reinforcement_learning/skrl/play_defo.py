@@ -178,6 +178,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    
+    # 10体のロボットにそれぞれ異なる目標速度を設定する
+    # target_vs = torch.tensor(
+    #     [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
+    #     device=env.unwrapped.device,
+    # )
+    # env.unwrapped.target_v[:] = target_vs
+    # env.unwrapped.target_omega[:] = 0.0
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:

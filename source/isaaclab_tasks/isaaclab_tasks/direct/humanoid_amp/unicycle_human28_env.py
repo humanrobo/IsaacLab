@@ -69,7 +69,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             param.requires_grad_(False)
         self.unicycle_running_mean = checkpoint["observation_preprocessor"]["running_mean"].to(self.device).float()
         self.unicycle_running_variance = checkpoint["observation_preprocessor"]["running_variance"].to(self.device).float()
-        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False)
+        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=True)
         # self._heightmap_generator = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False)
         self._unicycle_action = torch.zeros(self.num_envs, 2, device=self.device)
 
@@ -130,12 +130,12 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         self._update_humanoid_heightmap()
         self._compute_unicycle_action()
         #semseg各クラスがID割り当てられたときに、pushableのIDを探す
-        if self.pushable_color is None:
-            semantic_info = self.camera_humanoid.data.info[0]["semantic_segmentation"]["idToLabels"]
-            self.pushable_color = next(
-                ast.literal_eval(k) for k, v in semantic_info.items()
-                if v.get("class") == "pushable"
-            )
+        # if self.pushable_color is None:
+        #     semantic_info = self.camera_humanoid.data.info[0]["semantic_segmentation"]["idToLabels"]
+        #     self.pushable_color = next(
+        #         ast.literal_eval(k) for k, v in semantic_info.items()
+        #         if v.get("class") == "pushable"
+        #     )
 
     # def _apply_action(self):
     #     target = self.action_offset + self.action_scale * self.actions
@@ -227,7 +227,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         self._unicycle_action[:, 1] *= 1.0
         prediction_time = 0.5
         turn_scale = 0.3
-        self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] * prediction_time #n* turn_scale #n
+        self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] #n* prediction_time #n* turn_scale #n
         self.goal_yaw = torch.atan2(torch.sin(self.goal_yaw), torch.cos(self.goal_yaw))
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:

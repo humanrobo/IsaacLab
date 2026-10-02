@@ -34,7 +34,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
         },
     ).replace(
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, 0.0, 0.5),
+            pos=(0.0, 0.0, 0.7),
         )
     )
     # unicycle: RigidObjectCfg = RigidObjectCfg(
