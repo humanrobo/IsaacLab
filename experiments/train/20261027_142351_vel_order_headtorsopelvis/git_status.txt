@@ -1,0 +1,47 @@
+ブランチ matsuno-work
+Your branch is up to date with 'origin/matsuno-work'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   scripts/reinforcement_learning/skrl/robot_state_latest.pt
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py
+
+追跡されていないファイル:
+  (use "git add <file>..." to include in what will be committed)
+	experiments/train/20261002_154507_vel_order/
+	experiments/train/20261002_160751_vel_order/
+	experiments/train/20261002_160911_vel_order/
+	experiments/train/20261002_161242_vel_order/
+	experiments/train/20261002_161348_vel_order/
+	experiments/train/20261002_162851_vel_order/
+	experiments/train/20261002_164105_vel_order/
+	experiments/train/20261002_165842_vel_order/
+	experiments/train/20261002_171340_vel_order/
+	experiments/train/20261002_173026_vel_order/
+	experiments/train/20261002_175130_vel_order/
+	experiments/train/20261026_173539_vel_order/
+	experiments/train/20261026_174331_vel_order_headtorsopelvis/
+	experiments/train/20261027_112341_vel_order_headtorsopelvis/
+	experiments/train/20261027_114645_vel_order_headtorsopelvis/
+	experiments/train/20261027_120909_vel_order_headtorsopelvis/
+	experiments/train/20261027_122343_vel_order_headtorsopelvis/
+	experiments/train/20261027_123342_vel_order_headtorsopelvis/
+	experiments/train/20261027_124610_vel_order_headtorsopelvis/
+	experiments/train/20261027_125428_vel_order_headtorsopelvis/
+	experiments/train/20261027_125731_vel_order_headtorsopelvis/
+	experiments/train/20261027_130710_vel_order_headtorsopelvis/
+	experiments/train/20261027_130759_vel_order_headtorsopelvis/
+	experiments/train/20261027_132025_vel_order_headtorsopelvis/
+	experiments/train/20261027_132049_vel_order_headtorsopelvis/
+	experiments/train/20261027_132139_vel_order_headtorsopelvis/
+	experiments/train/20261027_132558_vel_order_headtorsopelvis/
+	experiments/train/20261027_135714_vel_order_headtorsopelvis/
+	experiments/train/20261027_141846_vel_order_headtorsopelvis/
+	experiments/train/20261027_142240_vel_order_headtorsopelvis/
+	experiments/train/20261027_142351_vel_order_headtorsopelvis/
+
+no changes added to commit (use "git add" and/or "git commit -a")

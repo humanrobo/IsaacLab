@@ -22,6 +22,7 @@ from isaaclab.utils.math import quat_apply, euler_xyz_from_quat
 from isaaclab.utils.math import yaw_quat, quat_mul, quat_conjugate, quat_rotate_inverse
 from tqdm import tqdm
 import os
+from isaaclab.utils.math import quat_from_euler_xyz
 
 
 class HumanoidAmpEnv(DirectRLEnv):
@@ -91,8 +92,6 @@ class HumanoidAmpEnv(DirectRLEnv):
         # self.scene.env_origins[:, 1] = (
         #     torch.arange(self.num_envs, device=self.device) - (self.num_envs - 1) / 2
         # ) * 2.0
-
-
         # 膝立ち判定用のカウンタ
         self.knee_down_count = torch.zeros(
             self.num_envs,
@@ -113,6 +112,9 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.motion_dof_indexes = self._motion_loader.get_dof_index(self.robot.data.joint_names)
         self.motion_ref_body_index = self._motion_loader.get_body_index([self.cfg.reference_body])[0]
         self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
+        #追加
+        self.waist_body_index = 1
+        self.head_body_index = 2
 
         # reconfigure AMP observation space according to the number of observations and create the buffer
         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
@@ -147,6 +149,23 @@ class HumanoidAmpEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        # --- 10秒ごとに目標角速度をランダムに更新する処理 ---
+        interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
+        mask = self.episode_length_buf >= self.next_command_step
+        num = int(mask.sum().item())
+        if num > 0:
+            # 速度を 0.0 ～ 1.0 の間でランダム変更する場合
+            self.target_v[mask] = (
+                torch.rand(num, device=self.device) * 1.0
+            )
+            # 角速度を -1.0 ～ 1.0 の間でランダム変更
+            self.target_omega[mask] = (
+                torch.rand(num, device=self.device) * 2.0 - 1.0
+            )
+            self.next_command_step[mask] = (
+                self.episode_length_buf[mask] + interval
+            )
+        # ----------------------------------------------------
         if self.use_action_noise:
             # print("Action noise: ON")
             noise_std = 0.05
@@ -169,6 +188,10 @@ class HumanoidAmpEnv(DirectRLEnv):
         ang_vel_w = self.robot.data.body_ang_vel_w[:, self.ref_body_index]
         key_pos_w = self.robot.data.body_pos_w[:, self.key_body_indexes]
         _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
+        waist_ang_vel = self.robot.data.body_ang_vel_w[:, self.waist_body_index]
+        head_ang_vel = self.robot.data.body_ang_vel_w[:, self.head_body_index]
+        waist_omega = waist_ang_vel[:, 2:3]
+        head_omega = head_ang_vel[:, 2:3]
 
 # -----------------------------------------------------------
         # 3. すべてのデータを「Yawをキャンセルしたローカル座標系」に変換
@@ -198,6 +221,8 @@ class HumanoidAmpEnv(DirectRLEnv):
             local_key_pos,
             velocity_error,
             omega_error,
+            waist_omega,
+            head_omega,
         )
 
         # -----------------------------------------------------------
@@ -294,11 +319,20 @@ class HumanoidAmpEnv(DirectRLEnv):
         root_lin_vel = self.robot.data.body_lin_vel_w[:, self.ref_body_index]
         root_ang_vel = self.robot.data.body_ang_vel_w[:, self.ref_body_index]
         # -----------------------------------------------------------
-        # 2. 高さ報酬
-        # -----------------------------------------------------------
+        # 2. 高さ報酬 -----------------------------------------------------------
         root_height = self.robot.data.body_pos_w[:, self.ref_body_index, 2]
         height_reward = torch.exp(
             -5.0 * (root_height - 1.0) ** 2
+        )
+        # 腰の高さ報酬
+        waist_height = self.robot.data.body_pos_w[:, self.waist_body_index, 2]
+        waist_height_reward = torch.exp(
+            -5.0 * (waist_height - 0.9) ** 2
+        )
+        # 頭の高さ報酬
+        head_height = self.robot.data.body_pos_w[:, self.head_body_index, 2]
+        head_height_reward = torch.exp(
+            -5.0 * (head_height - 1.2) ** 2
         )
         # -----------------------------------------------------------
         # 3. ロボット前方向速度
@@ -328,16 +362,34 @@ class HumanoidAmpEnv(DirectRLEnv):
         # -----------------------------------------------------------
         angular_velocity = root_ang_vel[:, 2]
         omega_error = self.target_omega - angular_velocity
-        omega_reward = torch.exp(
+        torso_omega_reward = torch.exp(
             -5.0 * omega_error ** 2
         )
+        waist_ang_vel = self.robot.data.body_ang_vel_w[:, self.waist_body_index]
+        waist_omega_error = self.target_omega - waist_ang_vel[:, 2]
+        waist_omega_reward = torch.exp(
+            -5.0 * waist_omega_error ** 2
+        )
+        head_ang_vel = self.robot.data.body_ang_vel_w[:, self.head_body_index]
+        head_omega_error = self.target_omega - head_ang_vel[:, 2]
+        head_omega_reward = torch.exp(
+            -5.0 * head_omega_error ** 2
+        )
+        #逆方向罰則
+        angular_velocity = root_ang_vel[:, 2]
+        wrong_direction_penalty = torch.where(
+            angular_velocity * self.target_omega < 0.0,
+            torch.ones_like(angular_velocity),
+            torch.zeros_like(angular_velocity),
+        )
+        #方向報酬
         root_rot = self.robot.data.body_quat_w[:, self.ref_body_index]
         _, _, yaw = euler_xyz_from_quat(root_rot)
         yaw_change = torch.atan2(
             torch.sin(yaw - self.prev_yaw),
             torch.cos(yaw - self.prev_yaw),
         )
-        measured_omega = yaw_change / self.cfg.sim.dt
+        measured_omega = yaw_change / self.cfg.sim.dt * self.cfg.decimation
         yaw_omega_error = self.target_omega - measured_omega
         yaw_omega_reward = torch.exp(
             -5.0 * yaw_omega_error ** 2
@@ -347,22 +399,44 @@ class HumanoidAmpEnv(DirectRLEnv):
         # 6. 報酬の合成
         # -----------------------------------------------------------
         reward = (
-            1.0 * velocity_reward
-            + 2.0 * omega_reward
-            + 0.5 * height_reward
-            + 2.0 * yaw_omega_reward
-        )
+            + 1.5 * yaw_omega_reward       # 実測Yaw角の変化に基づく旋回速度の追従            
+            + 1.5 * torso_omega_reward     # 胴体の目標旋回速度への追従            
+            + 1.5 * waist_omega_reward     # 腰の目標旋回速度への追従            
+            + 0.1 * velocity_reward        # 目標並進速度への追従          
+            + 0.5 * head_omega_reward      # 頭部の目標旋回速度への追従
+            + 0.5 * height_reward          # 指定した高さ(1.0m)の維持
+            + 0.5 * waist_height_reward    # 腰の高さへの追従
+            + 0.5 * head_height_reward     # 頭の高さへの追従
+            - 1.0 * wrong_direction_penalty  # 目標と逆方向に回転している場合のペナルティ
+        )   
 
         # 1000ステップごとにログを出力
         if self.common_step_counter % 1000 == 0:
             tqdm.write(
                 f"step={self.common_step_counter} "
-                f"height={root_height.mean().item():.3f} "
-                f"velocity={velocity_reward.mean().item():.3f} "
-                f"omega={omega_reward.mean().item():.3f} "
-                f"yaw_omega={yaw_omega_reward.mean().item():.3f} "
                 f"height_r={height_reward.mean().item():.3f} "
+                f"waist_height_r={waist_height_reward.mean().item():.3f} "
+                f"head_height_r={head_height_reward.mean().item():.3f} "
+                f"velocity={velocity_reward.mean().item():.3f} "
+                f"torso_omega={torso_omega_reward.mean().item():.3f} "
+                f"waist_omega={waist_omega_reward.mean().item():.3f} "
+                f"head_omega={head_omega_reward.mean().item():.3f} "
+                f"yaw_omega={yaw_omega_reward.mean().item():.3f} "
+                f"wrong_direction={wrong_direction_penalty.mean().item():.3f} "
             )
+
+        # env0の速度・角速度をログに出力
+        if self.common_step_counter % 50 == 0:
+            with open("/tmp/env0_velocity.log", "a") as f:
+                f.write(
+                    f"step={self.common_step_counter} "
+                    f"target_v={self.target_v[0].item():.3f} "
+                    f"forward_v={forward_speed[0].item():.3f} "
+                    f"target_omega={self.target_omega[0].item():.3f} "
+                    f"root_omega={angular_velocity[0].item():.3f} "
+                    f"yaw_omega={measured_omega[0].item():.3f} "
+                    f"waist_omega={waist_ang_vel[0, 2].item():.3f}\n"
+                )
 
         return reward
 
@@ -377,7 +451,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         shin_height_thresh = 0.1
         shin_down = (
             (left_shin_h < shin_height_thresh)
-            & (right_shin_h < shin_height_thresh)
+            | (right_shin_h < shin_height_thresh)
         )
         # 膝立ち継続カウント
         self.knee_down_count[shin_down] += 1
@@ -406,28 +480,33 @@ class HumanoidAmpEnv(DirectRLEnv):
         _, _, yaw = euler_xyz_from_quat(root_state[:, 3:7])
         self.prev_yaw[env_ids] = yaw
 
-        self.target_v[env_ids] = 0.0
-        # self.target_omega[env_ids] = 2.0
-        min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
-        max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
-        mask = self.episode_length_buf >= self.next_command_step
-        num = int(mask.sum().item())
-        if num > 0:
-            # self.target_v[mask] = (
-            #     torch.rand(num, device=self.device) * 0.5 + 0.5
-            # )
-            self.target_omega[mask] = (
-                torch.rand(num, device=self.device) * 2.0 - 1.0
-            )
-            self.next_command_step[mask] = (
-                self.episode_length_buf[mask]
-                + torch.randint(
-                    min_interval,
-                    max_interval + 1,
-                    (num,),
-                    device=self.device,
-                )
-            )
+        # self.target_v[env_ids] = 0.5        #目標進行速度
+        # self.target_omega[env_ids] = 0.5    #目標角速度
+        # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
+        # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
+        # mask = self.episode_length_buf >= self.next_command_step
+        # num = int(mask.sum().item())
+        # if num > 0:
+        #     self.target_v[mask] = (
+        #         torch.rand(num, device=self.device) * 0.5 + 0.5
+        #     )
+        #     self.target_omega[mask] = (
+        #         torch.rand(num, device=self.device) * 2.0 - 1.0
+        #     )
+        #     self.next_command_step[mask] = (
+        #         self.episode_length_buf[mask]
+        #         + torch.randint(
+        #             min_interval,
+        #             max_interval + 1,
+        #             (num,),
+        #             device=self.device,
+        #         )
+        #     )
+        self.target_v[env_ids] = torch.rand(len(env_ids), device=self.device) * 1.0
+        self.target_omega[env_ids] = torch.rand(len(env_ids), device=self.device) * 2.0 - 1.0
+        
+        interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
+        self.next_command_step[env_ids] = self.episode_length_buf[env_ids] + interval
     # reset strategies
 
     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -615,6 +694,8 @@ def compute_policy_obs(
     #追加
     velocity_error,
     omega_error,
+    waist_omega,
+    head_omega,
 ) -> torch.Tensor:
     obs = torch.cat(
         (
@@ -628,6 +709,8 @@ def compute_policy_obs(
             #追加
             velocity_error.unsqueeze(-1),
             omega_error.unsqueeze(-1),
+            waist_omega,
+            head_omega,
         ),
         dim=-1,
     )

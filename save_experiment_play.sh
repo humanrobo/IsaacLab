@@ -11,7 +11,16 @@ EXP_NAME=$1
 TASK_NAME=$2
 CHECKPOINT=$3
 NUM_ENVS=$4
-HEADLESS=$5
+HEADLESS=false
+MANUAL=false
+
+for arg in "${@:5}"; do
+    if [ "$arg" = "--headless" ]; then
+        HEADLESS=true
+    elif [ "$arg" = "--manual" ]; then
+        MANUAL=true
+    fi
+done
 
 DATE=$(date +"%Y%m%d_%H%M%S")
 
@@ -23,14 +32,15 @@ echo "Experiment   : $EXP_NAME"
 echo "Checkpoint   : $CHECKPOINT"
 echo "Num envs     : $NUM_ENVS"
 echo "Headless     : $HEADLESS"
+echo "Manual       : $MANUAL"
 echo "======================================="
 
 #--------------------------------------------------
 # 引数チェック
 #--------------------------------------------------
-if [ $# -lt 4 ] || [ $# -gt 5 ]; then
+if [ $# -lt 4 ] || [ $# -gt 6 ]; then
     echo "Usage:"
-    echo "  $0 <experiment_name> <task_name> <checkpoint> <num_envs> [--headless]"
+    echo "  $0 <experiment_name> <task_name> <checkpoint> <num_envs> [--headless] [--manual]"
     exit 1
 fi
 
@@ -60,8 +70,13 @@ CMD=(
 )
 
 # headless指定があれば追加
-if [ "$HEADLESS" = "--headless" ]; then
+if [ "$HEADLESS" = true ]; then
     CMD+=(--headless)
+fi
+
+# manual指定があれば追加
+if [ "$MANUAL" = true ]; then
+    CMD+=(--manual)
 fi
 
 echo "Running:"

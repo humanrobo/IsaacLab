@@ -1,0 +1,370 @@
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index c2c4ca3ea..77282403f 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:21465bfdba1dde73de018d4319295945377267998a8187fa9167adb08ab9d351
+-size 3616
++oid sha256:c937ccdf4b80a7b5d67e448e41098cad04872fc6e5b420d1bfa7da6df40b7476
++size 335264
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+index 536ab8e64..acda0464c 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+@@ -91,7 +91,7 @@ agent:
+   value_loss_scale: 2.5
+   discriminator_loss_scale: 5.0
+   amp_batch_size: 512
+-  task_reward_scale: 1.0  #テスト
++  task_reward_scale: 0.2 #テスト
+   style_reward_scale: 1.0
+   # task_reward_scale: 0.2 # task_reward_weight → task_reward_scale
+   # style_reward_scale: 1.0                   # style_reward_weight → style_reward_scale
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 8323f98fd..e8103ccb1 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -22,6 +22,7 @@ from isaaclab.utils.math import quat_apply, euler_xyz_from_quat
+ from isaaclab.utils.math import yaw_quat, quat_mul, quat_conjugate, quat_rotate_inverse
+ from tqdm import tqdm
+ import os
++from isaaclab.utils.math import quat_from_euler_xyz
+ 
+ 
+ class HumanoidAmpEnv(DirectRLEnv):
+@@ -91,8 +92,6 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # self.scene.env_origins[:, 1] = (
+         #     torch.arange(self.num_envs, device=self.device) - (self.num_envs - 1) / 2
+         # ) * 2.0
+-
+-
+         # 膝立ち判定用のカウンタ
+         self.knee_down_count = torch.zeros(
+             self.num_envs,
+@@ -113,6 +112,9 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.motion_dof_indexes = self._motion_loader.get_dof_index(self.robot.data.joint_names)
+         self.motion_ref_body_index = self._motion_loader.get_body_index([self.cfg.reference_body])[0]
+         self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
++        #追加
++        self.waist_body_index = 1
++        self.head_body_index = 2
+ 
+         # reconfigure AMP observation space according to the number of observations and create the buffer
+         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
+@@ -169,6 +171,10 @@ class HumanoidAmpEnv(DirectRLEnv):
+         ang_vel_w = self.robot.data.body_ang_vel_w[:, self.ref_body_index]
+         key_pos_w = self.robot.data.body_pos_w[:, self.key_body_indexes]
+         _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
++        waist_ang_vel = self.robot.data.body_ang_vel_w[:, self.waist_body_index]
++        head_ang_vel = self.robot.data.body_ang_vel_w[:, self.head_body_index]
++        waist_omega = waist_ang_vel[:, 2:3]
++        head_omega = head_ang_vel[:, 2:3]
+ 
+ # -----------------------------------------------------------
+         # 3. すべてのデータを「Yawをキャンセルしたローカル座標系」に変換
+@@ -198,6 +204,8 @@ class HumanoidAmpEnv(DirectRLEnv):
+             local_key_pos,
+             velocity_error,
+             omega_error,
++            waist_omega,
++            head_omega,
+         )
+ 
+         # -----------------------------------------------------------
+@@ -328,16 +336,34 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # -----------------------------------------------------------
+         angular_velocity = root_ang_vel[:, 2]
+         omega_error = self.target_omega - angular_velocity
+-        omega_reward = torch.exp(
++        torso_omega_reward = torch.exp(
+             -5.0 * omega_error ** 2
+         )
++        waist_ang_vel = self.robot.data.body_ang_vel_w[:, self.waist_body_index]
++        head_ang_vel = self.robot.data.body_ang_vel_w[:, self.head_body_index]
++        waist_omega_error = self.target_omega - waist_ang_vel[:, 2]
++        head_omega_error = self.target_omega - head_ang_vel[:, 2]
++        waist_omega_reward = torch.exp(
++            -5.0 * waist_omega_error ** 2
++        )
++        head_omega_reward = torch.exp(
++            -5.0 * head_omega_error ** 2
++        )
++        #逆方向罰則
++        angular_velocity = root_ang_vel[:, 2]
++        wrong_direction_penalty = torch.where(
++            angular_velocity * self.target_omega < 0.0,
++            torch.ones_like(angular_velocity),
++            torch.zeros_like(angular_velocity),
++        )
++        #方向報酬
+         root_rot = self.robot.data.body_quat_w[:, self.ref_body_index]
+         _, _, yaw = euler_xyz_from_quat(root_rot)
+         yaw_change = torch.atan2(
+             torch.sin(yaw - self.prev_yaw),
+             torch.cos(yaw - self.prev_yaw),
+         )
+-        measured_omega = yaw_change / self.cfg.sim.dt
++        measured_omega = yaw_change / self.cfg.sim.dt * self.cfg.decimation
+         yaw_omega_error = self.target_omega - measured_omega
+         yaw_omega_reward = torch.exp(
+             -5.0 * yaw_omega_error ** 2
+@@ -347,21 +373,26 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # 6. 報酬の合成
+         # -----------------------------------------------------------
+         reward = (
+-            1.0 * velocity_reward
+-            + 2.0 * omega_reward
+-            + 0.5 * height_reward
+-            + 2.0 * yaw_omega_reward
++            1.0 * velocity_reward          # 目標並進速度への追従
++            + 1.0 * torso_omega_reward     # 胴体の目標旋回速度への追従
++            + 1.0 * waist_omega_reward     # 腰の目標旋回速度への追従
++            + 0.5 * head_omega_reward      # 頭部の目標旋回速度への追従
++            + 0.5 * height_reward          # 指定した高さ(1.0m)の維持
++            + 2.0 * yaw_omega_reward       # 実測Yaw角の変化に基づく旋回速度の追従
++            - 1.0 * wrong_direction_penalty  # 目標と逆方向に回転している場合のペナルティ
+         )
+ 
+         # 1000ステップごとにログを出力
+         if self.common_step_counter % 1000 == 0:
+             tqdm.write(
+                 f"step={self.common_step_counter} "
+-                f"height={root_height.mean().item():.3f} "
++                f"height_r={height_reward.mean().item():.3f} "
+                 f"velocity={velocity_reward.mean().item():.3f} "
+-                f"omega={omega_reward.mean().item():.3f} "
++                f"torso_omega={torso_omega_reward.mean().item():.3f} "
++                f"waist_omega={waist_omega_reward.mean().item():.3f} "
++                f"head_omega={head_omega_reward.mean().item():.3f} "
+                 f"yaw_omega={yaw_omega_reward.mean().item():.3f} "
+-                f"height_r={height_reward.mean().item():.3f} "
++                f"wrong_direction={wrong_direction_penalty.mean().item():.3f} "
+             )
+ 
+         return reward
+@@ -377,7 +408,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         shin_height_thresh = 0.1
+         shin_down = (
+             (left_shin_h < shin_height_thresh)
+-            & (right_shin_h < shin_height_thresh)
++            | (right_shin_h < shin_height_thresh)
+         )
+         # 膝立ち継続カウント
+         self.knee_down_count[shin_down] += 1
+@@ -399,35 +430,56 @@ class HumanoidAmpEnv(DirectRLEnv):
+             root_state, joint_pos, joint_vel = self._reset_strategy_random(env_ids, start)
+         else:
+             raise ValueError(f"Unknown reset strategy: {self.cfg.reset_strategy}")
+-
++        # 初期スポーン方向をランダム化
++        random_yaw = (
++            torch.rand(len(env_ids), device=self.device) * 2.0 * torch.pi
++            - torch.pi
++        )
++        random_quat = quat_from_euler_xyz(
++            torch.zeros_like(random_yaw),
++            torch.zeros_like(random_yaw),
++            random_yaw,
++        )
++        root_state[:, 3:7] = quat_mul(
++            random_quat,
++            root_state[:, 3:7],
++        )
++        root_state[:, 7:10] = quat_apply(
++            random_quat,
++            root_state[:, 7:10],
++        )
++        root_state[:, 10:13] = quat_apply(
++            random_quat,
++            root_state[:, 10:13],
++        )
+         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
+         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+         _, _, yaw = euler_xyz_from_quat(root_state[:, 3:7])
+         self.prev_yaw[env_ids] = yaw
+ 
+-        self.target_v[env_ids] = 0.0
+-        # self.target_omega[env_ids] = 2.0
+-        min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
+-        max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
+-        mask = self.episode_length_buf >= self.next_command_step
+-        num = int(mask.sum().item())
+-        if num > 0:
+-            # self.target_v[mask] = (
+-            #     torch.rand(num, device=self.device) * 0.5 + 0.5
+-            # )
+-            self.target_omega[mask] = (
+-                torch.rand(num, device=self.device) * 2.0 - 1.0
+-            )
+-            self.next_command_step[mask] = (
+-                self.episode_length_buf[mask]
+-                + torch.randint(
+-                    min_interval,
+-                    max_interval + 1,
+-                    (num,),
+-                    device=self.device,
+-                )
+-            )
++        self.target_v[env_ids] = 0.5
++        self.target_omega[env_ids] = 0.2
++        # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        # mask = self.episode_length_buf >= self.next_command_step
++        # num = int(mask.sum().item())
++        # if num > 0:
++        #     self.target_v[mask] = (
++        #         torch.rand(num, device=self.device) * 0.5 + 0.5
++        #     )
++        #     self.target_omega[mask] = (
++        #         torch.rand(num, device=self.device) * 2.0 - 1.0
++        #     )
++        #     self.next_command_step[mask] = (
++        #         self.episode_length_buf[mask]
++        #         + torch.randint(
++        #             min_interval,
++        #             max_interval + 1,
++        #             (num,),
++        #             device=self.device,
++        #         )
++        #     )
+     # reset strategies
+ 
+     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+@@ -615,6 +667,8 @@ def compute_policy_obs(
+     #追加
+     velocity_error,
+     omega_error,
++    waist_omega,
++    head_omega,
+ ) -> torch.Tensor:
+     obs = torch.cat(
+         (
+@@ -628,6 +682,8 @@ def compute_policy_obs(
+             #追加
+             velocity_error.unsqueeze(-1),
+             omega_error.unsqueeze(-1),
++            waist_omega,
++            head_omega,
+         ),
+         dim=-1,
+     )
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+index 023759b8b..acd81a77d 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+@@ -29,7 +29,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
+     decimation = 2
+ 
+     # spaces
+-    observation_space = 83#次元を2+4つ追加
++    observation_space = 85#次元を2+4つ追加
+     action_space = 28
+     state_space = 0
+     num_amp_observations = 2
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py
+index c56160478..cf5390a80 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py
+@@ -110,11 +110,11 @@ class UnicycleEnv(DirectRLEnv):
+         )
+         cx, cy = W / 2.0, H / 2.0
+         dist = torch.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+-        personal_radius = min(H, W) * 0.25 #64の16pixelがパーソナルスペース
++        personal_radius = min(H, W) * 0.25 #64の16pixelがパーソナルスペース半径
+         self.personal_weight = torch.clamp(
+             1.0 - dist / personal_radius,
+             min=0.0
+-        )
++        )#パーソナルスペース半径内のピクセルを抽出
+         # region Episode累積報酬の初期化（__init__）
+         self.episode_progress_reward = torch.zeros(self.num_envs, device=self.device)
+         self.episode_goal_reward = torch.zeros(self.num_envs, device=self.device)
+@@ -299,12 +299,12 @@ class UnicycleEnv(DirectRLEnv):
+         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
+         self.actions = torch.clamp(actions, -1.0, 1.0)
+         #semseg各クラスがID割り当てられたときに、pushableのIDを探す
+-        # if self.pushable_color is None:
+-        #     semantic_info = self.camera.data.info[0]["semantic_segmentation"]["idToLabels"]
+-        #     self.pushable_color = next(
+-        #         ast.literal_eval(k) for k, v in semantic_info.items()
+-        #         if v.get("class") == "pushable"
+-        #     )
++        if self.pushable_color is None:
++            semantic_info = self.camera.data.info[0]["semantic_segmentation"]["idToLabels"]
++            self.pushable_color = next(
++                ast.literal_eval(k) for k, v in semantic_info.items()
++                if v.get("class") == "pushable"
++            )
+ 
+     def _apply_action(self):
+         # ユニサイクルモデルへの速度指令（Velocities）を直接適用
+@@ -722,33 +722,37 @@ class UnicycleEnv(DirectRLEnv):
+                 + 2.0 * avoid_reward                # スタック状態からうまく脱出（旋回・後進）できたときの報酬
+                 - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
+             )
+-        
++
+         stage12 = self.obstacle_stages == 12
+         stage5 = self.obstacle_stages == 5
+         reward_stage12 = (
+-            10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float()
+-            + 0.05 * back_reward  
+-            + personal_stop_reward
+-            - 5.0 * stuck_penalty
++            10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float() # 停止したときに周囲に障害物が少ないほど報酬
++            + 0.05 * back_reward                # 後進を誘発するための報酬
++            + personal_stop_reward              # パーソナルストップに関する報酬
++            - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
+         )
+         reward_stage5 = (
+-            1.0 * progress_reward
+-            + 50.0 * goal_reward
+-            + 10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float()
+-            + 10.0 * time_bonus
+-            + 0.1 * forward_reward
+-            + 0.1 * turn_reward
+-            + 0.05 * back_reward
+-            - obstacle_penalty
+-            - obstacle_approach_penalty
+-            - 5.0 * collision_penalty
+-            + 0.3 * obstacle_turn_reward
+-            + 5.0 * obstacle_pass_reward
+-            - 3.0 * obstacle_space_penalty
+-            + 0.1 * safe_reward
+-            + personal_stop_reward
+-            + 2.0 * avoid_reward
+-            - 5.0 * stuck_penalty
++            # --- ゴール・進行関連 ---
++            1.0 * progress_reward               # ゴール方向へ近づくほど高くなる報酬
++            + 50.0 * goal_reward                # ゴールに到達したときの大きな報酬
++            + 10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float() # 停止したときに周囲に障害物が少ないほど報酬
++            + 10.0 * time_bonus                 # ゴール到達までの早さに応じたボーナス
++            # --- 基本移動関連 ---
++            + 0.1 * forward_reward              # 前方向へ進んでいることに対する小さな報酬
++            + 0.1 * turn_reward                 # 一定以上の旋回行動を行っていることへの報酬
++            + 0.05 * back_reward                # 後進を誘発するための報酬
++            # --- 障害物関連（報酬・ペナルティ） ---
++            - obstacle_penalty                  # 障害物に近づきすぎたときのペナルティ
++            - obstacle_approach_penalty         # 障害物へ向かって高速接近しているときのペナルティ
++            - 5.0 * collision_penalty           # 障害物と衝突したときのペナルティ
++            + 0.3 * obstacle_turn_reward        # 障害物の手前で上手に方向転換（回避）できたときの報酬
++            + 5.0 * obstacle_pass_reward        # 障害物を無事に通過したときの報酬（1個につき5.0）
++            - 3.0 * obstacle_space_penalty      # ロボットに障害物が近いほど罰則
++            + 0.1 * safe_reward                 # ロボット周囲に障害物がなければ微小報酬
++            + personal_stop_reward              # パーソナルストップに関する報酬
++            # --- スタック・回避関連 ---
++            + 2.0 * avoid_reward                # スタック状態からうまく脱出（旋回・後進）できたときの報酬
++            - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
+         )
+         reward = torch.where(stage12, reward_stage12, reward_stage5)
+ 
+@@ -844,6 +848,7 @@ class UnicycleEnv(DirectRLEnv):
+         # 1秒以上、前進しようとしているのに動かない
+         stopped_too_long = self.stop_count >= self.stop_threshold
+         terminated = died | stopped_too_long | self.safe_stop_done
++        terminated = torch.zeros_like(time_out)
+         # ==========================================
+         # env0のEpisode終了時に最終結果を保存
+         # ==========================================

@@ -29,7 +29,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
     decimation = 2
 
     # spaces
-    observation_space = 83#次元を2+4つ追加
+    observation_space = 85#次元を2+4つ追加
     action_space = 28
     state_space = 0
     num_amp_observations = 2

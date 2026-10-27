@@ -245,33 +245,69 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     states = env.state()
     timestep = 0
 
+    # while simulation_app.is_running():
+    #     start_time = time.time()
+    #     with torch.inference_mode():
+    #         if args_cli.manual:
+    #             v = 0.0
+    #             omega = 0.0
+
+    #             if carb.input.KeyboardInput.W in pressed_keys:
+    #                 v += 1.0
+    #             if carb.input.KeyboardInput.S in pressed_keys:
+    #                 v -= 1.0
+    #             if carb.input.KeyboardInput.A in pressed_keys:
+    #                 omega += 1.0
+    #             if carb.input.KeyboardInput.D in pressed_keys:
+    #                 omega -= 1.0
+
+    #             actions = torch.zeros((env.num_envs, 2), device=env.device)
+    #             actions[:, 0] = v
+    #             actions[:, 1] = omega
+    #         else:
+    #             outputs = runner.agent.act(obs, states, timestep=0, timesteps=0)
+    #             if hasattr(env, "possible_agents"):
+    #                 actions = {a: outputs[-1][a].get("mean_actions", outputs[0][a]) for a in env.possible_agents}
+    #             else:
+    #                 actions = outputs[-1].get("mean_actions", outputs[0])
+
     while simulation_app.is_running():
         start_time = time.time()
         with torch.inference_mode():
             if args_cli.manual:
-                v = 0.0
-                omega = 0.0
-
                 if carb.input.KeyboardInput.W in pressed_keys:
-                    v += 1.0
+                    env.unwrapped.target_v[:] += 0.01
                 if carb.input.KeyboardInput.S in pressed_keys:
-                    v -= 1.0
+                    env.unwrapped.target_v[:] -= 0.01
                 if carb.input.KeyboardInput.A in pressed_keys:
-                    omega += 1.0
+                    env.unwrapped.target_omega[:] += 0.02
                 if carb.input.KeyboardInput.D in pressed_keys:
-                    omega -= 1.0
+                    env.unwrapped.target_omega[:] -= 0.02
+                if carb.input.KeyboardInput.SPACE in pressed_keys:
+                    env.unwrapped.target_v[:] = 0.0
+                    env.unwrapped.target_omega[:] = 0.0
 
-                actions = torch.zeros((env.num_envs, 2), device=env.device)
-                actions[:, 0] = v
-                actions[:, 1] = omega
+                env.unwrapped.target_v.clamp_(0.0, 1.0)
+                env.unwrapped.target_omega.clamp_(-1.0, 1.0)
+
+            # manualでも学習済みポリシーでアクションを生成
+            outputs = runner.agent.act(
+                obs, states, timestep=0, timesteps=0
+            )
+
+            if hasattr(env, "possible_agents"):
+                actions = {
+                    a: outputs[-1][a].get("mean_actions", outputs[0][a])
+                    for a in env.possible_agents
+                }
             else:
-                outputs = runner.agent.act(obs, states, timestep=0, timesteps=0)
-                if hasattr(env, "possible_agents"):
-                    actions = {a: outputs[-1][a].get("mean_actions", outputs[0][a]) for a in env.possible_agents}
-                else:
-                    actions = outputs[-1].get("mean_actions", outputs[0])
+                actions = outputs[-1].get("mean_actions", outputs[0])
 
             obs, _, _, _, _ = env.step(actions)
+            print(
+                f"v={env.unwrapped.target_v[0].item():.2f}, "
+                f"omega={env.unwrapped.target_omega[0].item():.2f}"
+            )
             states = env.state()
 
         if args_cli.video:

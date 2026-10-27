@@ -1,0 +1,91 @@
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 8323f98fd..292462203 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -337,7 +337,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             torch.sin(yaw - self.prev_yaw),
+             torch.cos(yaw - self.prev_yaw),
+         )
+-        measured_omega = yaw_change / self.cfg.sim.dt
++        measured_omega = yaw_change / self.cfg.sim.dt * self.cfg.decimation
+         yaw_omega_error = self.target_omega - measured_omega
+         yaw_omega_reward = torch.exp(
+             -5.0 * yaw_omega_error ** 2
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py
+index c56160478..412ee553d 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/unicycle/unicycle_env.py
+@@ -110,11 +110,11 @@ class UnicycleEnv(DirectRLEnv):
+         )
+         cx, cy = W / 2.0, H / 2.0
+         dist = torch.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+-        personal_radius = min(H, W) * 0.25 #64の16pixelがパーソナルスペース
++        personal_radius = min(H, W) * 0.25 #64の16pixelがパーソナルスペース半径
+         self.personal_weight = torch.clamp(
+             1.0 - dist / personal_radius,
+             min=0.0
+-        )
++        )#パーソナルスペース半径内のピクセルを抽出
+         # region Episode累積報酬の初期化（__init__）
+         self.episode_progress_reward = torch.zeros(self.num_envs, device=self.device)
+         self.episode_goal_reward = torch.zeros(self.num_envs, device=self.device)
+@@ -722,33 +722,37 @@ class UnicycleEnv(DirectRLEnv):
+                 + 2.0 * avoid_reward                # スタック状態からうまく脱出（旋回・後進）できたときの報酬
+                 - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
+             )
+-        
++
+         stage12 = self.obstacle_stages == 12
+         stage5 = self.obstacle_stages == 5
+         reward_stage12 = (
+-            10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float()
+-            + 0.05 * back_reward  
+-            + personal_stop_reward
+-            - 5.0 * stuck_penalty
++            10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float() # 停止したときに周囲に障害物が少ないほど報酬
++            + 0.05 * back_reward                # 後進を誘発するための報酬
++            + personal_stop_reward              # パーソナルストップに関する報酬
++            - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
+         )
+         reward_stage5 = (
+-            1.0 * progress_reward
+-            + 50.0 * goal_reward
+-            + 10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float()
+-            + 10.0 * time_bonus
+-            + 0.1 * forward_reward
+-            + 0.1 * turn_reward
+-            + 0.05 * back_reward
+-            - obstacle_penalty
+-            - obstacle_approach_penalty
+-            - 5.0 * collision_penalty
+-            + 0.3 * obstacle_turn_reward
+-            + 5.0 * obstacle_pass_reward
+-            - 3.0 * obstacle_space_penalty
+-            + 0.1 * safe_reward
+-            + personal_stop_reward
+-            + 2.0 * avoid_reward
+-            - 5.0 * stuck_penalty
++            # --- ゴール・進行関連 ---
++            1.0 * progress_reward               # ゴール方向へ近づくほど高くなる報酬
++            + 50.0 * goal_reward                # ゴールに到達したときの大きな報酬
++            + 10.0 * (1.0 - obstacle_space_penalty) * self.safe_stop_done.float() # 停止したときに周囲に障害物が少ないほど報酬
++            + 10.0 * time_bonus                 # ゴール到達までの早さに応じたボーナス
++            # --- 基本移動関連 ---
++            + 0.1 * forward_reward              # 前方向へ進んでいることに対する小さな報酬
++            + 0.1 * turn_reward                 # 一定以上の旋回行動を行っていることへの報酬
++            + 0.05 * back_reward                # 後進を誘発するための報酬
++            # --- 障害物関連（報酬・ペナルティ） ---
++            - obstacle_penalty                  # 障害物に近づきすぎたときのペナルティ
++            - obstacle_approach_penalty         # 障害物へ向かって高速接近しているときのペナルティ
++            - 5.0 * collision_penalty           # 障害物と衝突したときのペナルティ
++            + 0.3 * obstacle_turn_reward        # 障害物の手前で上手に方向転換（回避）できたときの報酬
++            + 5.0 * obstacle_pass_reward        # 障害物を無事に通過したときの報酬（1個につき5.0）
++            - 3.0 * obstacle_space_penalty      # ロボットに障害物が近いほど罰則
++            + 0.1 * safe_reward                 # ロボット周囲に障害物がなければ微小報酬
++            + personal_stop_reward              # パーソナルストップに関する報酬
++            # --- スタック・回避関連 ---
++            + 2.0 * avoid_reward                # スタック状態からうまく脱出（旋回・後進）できたときの報酬
++            - 5.0 * stuck_penalty               # 前進しようとしているのに動けずスタックしたときのペナルティ
+         )
+         reward = torch.where(stage12, reward_stage12, reward_stage5)
+ 
