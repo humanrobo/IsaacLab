@@ -1,0 +1,362 @@
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 000b1641d..824bf12bd 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:642d06b7342b29df9b7da87dc75e570927ef10e033f62126460c6dd4ea4840b1
+-size 4960
++oid sha256:9f29c815676b9592ea6e953f0b7f546e2dca002d0f347bc074127568b9e6bcb9
++size 335264
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+index 6438cb2bc..b3f6e8692 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+@@ -112,5 +112,5 @@ agent:
+ # https://skrl.readthedocs.io/en/latest/api/trainers/sequential.html
+ trainer:
+   class: SequentialTrainer
+-  timesteps: 100000
++  timesteps: 50000
+   environment_info: log
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index 3d63100df..0933973f5 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -33,7 +33,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # --- クラスの初期化（__init__など）に追加 ---------------------
+         # # 確認用コード（実行するとターミナルにリンク名一覧が出ます）
+         # print("--- H1 Robot Available Body Names ---")
+-        print(self.robot.data.body_names)
++        # print(self.robot.data.body_names)
+         # print(self.robot.data.joint_names)
+         # print(self.robot.data.body_names)
+         # print("-------------------------------------")
+@@ -67,7 +67,9 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # --- クラスの初期化（__init__など）に追加終了 ----------------
+ 
+         #追加
+-        self.goal_yaw = torch.zeros(self.num_envs, device=self.device)
++        self.target_yaw = torch.deg2rad(
++            torch.randint(-9, 10, (1,), device=self.device).float() * 10.0
++        ).expand(self.num_envs).clone()
+         # action offset and scale
+         dof_lower_limits = self.robot.data.soft_joint_pos_limits[0, :, 0]
+         dof_upper_limits = self.robot.data.soft_joint_pos_limits[0, :, 1]
+@@ -115,6 +117,46 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #追加
+         self.waist_body_index = 1
+         self.head_body_index = 2
++        #報酬用
++        self.direction_reached = torch.zeros(
++            self.num_envs, dtype=torch.bool, device=self.device
++        )
++        self.prev_joint_pos = self.robot.data.joint_pos.clone()
++        self.joint_motion_weights = torch.ones(
++            self.robot.data.joint_pos.shape[1],
++            device=self.device,
++        )
++        joint_weights = {
++            "abdomen_x": 3.0,
++            "abdomen_y": 3.0,
++            "abdomen_z": 3.0,
++            "right_hip_x": 2.5,
++            "right_hip_y": 2.5,
++            "right_hip_z": 2.5,
++            "left_hip_x": 2.5,
++            "left_hip_y": 2.5,
++            "left_hip_z": 2.5,
++            "right_knee": 1.5,
++            "left_knee": 1.5,
++            "right_ankle_x": 1.0,
++            "right_ankle_y": 1.0,
++            "right_ankle_z": 1.0,
++            "left_ankle_x": 1.0,
++            "left_ankle_y": 1.0,
++            "left_ankle_z": 1.0,
++            "right_shoulder_x": 0.7,
++            "right_shoulder_y": 0.7,
++            "right_shoulder_z": 0.7,
++            "left_shoulder_x": 0.7,
++            "left_shoulder_y": 0.7,
++            "left_shoulder_z": 0.7,
++            "right_elbow": 0.5,
++            "left_elbow": 0.5,
++        }
++        for joint_name, weight in joint_weights.items():
++            joint_ids, _ = self.robot.find_joints(joint_name)
++            if len(joint_ids) > 0:
++                self.joint_motion_weights[joint_ids[0]] = weight
+ 
+         # reconfigure AMP observation space according to the number of observations and create the buffer
+         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
+@@ -150,21 +192,27 @@ class HumanoidAmpEnv(DirectRLEnv):
+ 
+     def _pre_physics_step(self, actions: torch.Tensor):
+         # --- 10秒ごとに目標角速度をランダムに更新する処理 ---
+-        interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
+-        mask = self.episode_length_buf >= self.next_command_step
+-        num = int(mask.sum().item())
+-        if num > 0:
+-            # 速度を 0.0 ～ 1.0 の間でランダム変更する場合
+-            self.target_v[mask] = (
+-                torch.rand(num, device=self.device) * 1.0
+-            )
+-            # 角速度を -1.0 ～ 1.0 の間でランダム変更
+-            self.target_omega[mask] = (
+-                torch.rand(num, device=self.device) * 2.0 - 1.0
+-            )
+-            self.next_command_step[mask] = (
+-                self.episode_length_buf[mask] + interval
+-            )
++        # interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        # mask = self.episode_length_buf >= self.next_command_step
++        # num = int(mask.sum().item())
++        # if num > 0:
++        #     # 速度を 0.0 ～ 1.0 の間でランダム変更する場合
++        #     # self.target_v[mask] = (
++        #     #     torch.rand(num, device=self.device) * 1.0
++        #     # )
++        #     # 角速度を -1.0 ～ 1.0 の間でランダム変更
++        #     self.target_omega[mask] = (
++        #         torch.rand(num, device=self.device) * 2.0 - 1.0
++        #     )
++        #     self.next_command_step[mask] = (
++        #         self.episode_length_buf[mask] + interval
++        #     )
++        # 目標角速度を積分して目標方向を更新
++        dt = self.cfg.sim.dt * self.cfg.decimation
++        self.target_yaw = torch.atan2(
++            torch.sin(self.target_yaw + self.target_omega * dt),
++            torch.cos(self.target_yaw + self.target_omega * dt),
++        )
+         # ----------------------------------------------------
+         if self.use_action_noise:
+             # print("Action noise: ON")
+@@ -188,12 +236,19 @@ class HumanoidAmpEnv(DirectRLEnv):
+         ang_vel_w = self.robot.data.body_ang_vel_w[:, self.ref_body_index]
+         key_pos_w = self.robot.data.body_pos_w[:, self.key_body_indexes]
+         _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
++        target_yaw = torch.zeros_like(robot_yaw)
++        direction_error = torch.atan2(
++            torch.sin(target_yaw - robot_yaw),
++            torch.cos(target_yaw - robot_yaw),
++        )
++        direction_sin = torch.sin(direction_error)
++        direction_cos = torch.cos(direction_error)
+         waist_ang_vel = self.robot.data.body_ang_vel_w[:, self.waist_body_index]
+         head_ang_vel = self.robot.data.body_ang_vel_w[:, self.head_body_index]
+         waist_omega = waist_ang_vel[:, 2:3]
+         head_omega = head_ang_vel[:, 2:3]
+ 
+-# -----------------------------------------------------------
++        # -----------------------------------------------------------
+         # 3. すべてのデータを「Yawをキャンセルしたローカル座標系」に変換
+         # -----------------------------------------------------------
+         (
+@@ -208,7 +263,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             lin_vel_w,
+             ang_vel_w,
+             key_pos_w,
+-        )
++        )      
+         velocity_error = self.target_v - local_lin_vel[:, 0]
+         omega_error = self.target_omega - local_ang_vel[:, 2]
+         policy_obs = compute_policy_obs(
+@@ -223,8 +278,11 @@ class HumanoidAmpEnv(DirectRLEnv):
+             omega_error,
+             waist_omega,
+             head_omega,
++            direction_sin,
++            direction_cos,
+         )
+ 
++
+         # -----------------------------------------------------------
+         # 4. 各Observationの組み立て
+         # -----------------------------------------------------------
+@@ -273,7 +331,6 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.amp_observation_buffer[:, 0] = amp_obs.clone()
+         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
+ 
+-
+         #ロボットの方向に対する人歩行らしさを判定し、分布を出力
+         if self.common_step_counter % 1000 == 0:
+                     # evaluate_motion.py と同じフォルダの絶対パスを指定
+@@ -322,7 +379,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # 2. 高さ報酬 -----------------------------------------------------------
+         root_height = self.robot.data.body_pos_w[:, self.ref_body_index, 2]
+         height_reward = torch.exp(
+-            -5.0 * (root_height - 1.0) ** 2
++            -5.0 * (root_height - 1.2) ** 2
+         )
+         # 腰の高さ報酬
+         waist_height = self.robot.data.body_pos_w[:, self.waist_body_index, 2]
+@@ -332,7 +389,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # 頭の高さ報酬
+         head_height = self.robot.data.body_pos_w[:, self.head_body_index, 2]
+         head_height_reward = torch.exp(
+-            -5.0 * (head_height - 1.2) ** 2
++            -5.0 * (head_height - 1.4) ** 2
+         )
+         # -----------------------------------------------------------
+         # 3. ロボット前方向速度
+@@ -382,32 +439,38 @@ class HumanoidAmpEnv(DirectRLEnv):
+             torch.ones_like(angular_velocity),
+             torch.zeros_like(angular_velocity),
+         )
+-        #方向報酬
+-        root_rot = self.robot.data.body_quat_w[:, self.ref_body_index]
+-        _, _, yaw = euler_xyz_from_quat(root_rot)
+-        yaw_change = torch.atan2(
+-            torch.sin(yaw - self.prev_yaw),
+-            torch.cos(yaw - self.prev_yaw),
+-        )
+-        measured_omega = yaw_change / self.cfg.sim.dt * self.cfg.decimation
+-        yaw_omega_error = self.target_omega - measured_omega
+-        yaw_omega_reward = torch.exp(
+-            -5.0 * yaw_omega_error ** 2
+-        )
+         self.prev_yaw[:] = yaw
++        # 現在方向と目標方向の誤差
++        yaw_error = torch.atan2(
++            torch.sin(self.target_yaw - yaw),
++            torch.cos(self.target_yaw - yaw),
++        )
++        direction_reward = torch.exp(-2.0 * yaw_error.square())
++        reached = direction_reward > 0.9
++        # 全環境が目標方向に到達したら、共通の目標方向を変更
++        if torch.all(reached):
++            new_angle_deg = torch.randint(-9, 10, (1,), device=self.device).float() * 10.0
++            self.target_yaw[:] = torch.deg2rad(new_angle_deg)
++            print(f"target direction: {new_angle_deg.item():.1f} deg")
++        #関節変位抑制
++        joint_pos = self.robot.data.joint_pos
++        delta_q = joint_pos - self.prev_joint_pos
++        penalty = torch.sum(self.joint_motion_weights * delta_q.square(), dim=-1)
++        self.prev_joint_pos = joint_pos.clone()
+         # -----------------------------------------------------------
+         # 6. 報酬の合成
+         # -----------------------------------------------------------
+         reward = (
+-            + 1.5 * yaw_omega_reward       # 実測Yaw角の変化に基づく旋回速度の追従            
+-            + 1.5 * torso_omega_reward     # 胴体の目標旋回速度への追従            
+-            + 1.5 * waist_omega_reward     # 腰の目標旋回速度への追従            
+-            + 0.1 * velocity_reward        # 目標並進速度への追従          
+-            + 0.5 * head_omega_reward      # 頭部の目標旋回速度への追従
+-            + 0.5 * height_reward          # 指定した高さ(1.0m)の維持
+-            + 0.5 * waist_height_reward    # 腰の高さへの追従
+-            + 0.5 * head_height_reward     # 頭の高さへの追従
++            + 2.0 * direction_reward       # 目標方向への追従       
++            # + 1.0 * torso_omega_reward     # 胴体の目標旋回速度への追従            
++            # + 1.0 * waist_omega_reward     # 腰の目標旋回速度への追従            
++            # + 1.0 * velocity_reward        # 目標並進速度への追従          
++            # + 0.5 * head_omega_reward      # 頭部の目標旋回速度への追従
++            # + 0.5 * height_reward          # 指定した高さ(1.0m)の維持
++            # + 0.5 * waist_height_reward    # 腰の高さへの追従
++            # + 0.5 * head_height_reward     # 頭の高さへの追従
+             - 1.0 * wrong_direction_penalty  # 目標と逆方向に回転している場合のペナルティ
++            - 0.1 * penalty  # 関節変位の抑制
+         )   
+ 
+         # 1000ステップごとにログを出力
+@@ -421,8 +484,9 @@ class HumanoidAmpEnv(DirectRLEnv):
+                 f"torso_omega={torso_omega_reward.mean().item():.3f} "
+                 f"waist_omega={waist_omega_reward.mean().item():.3f} "
+                 f"head_omega={head_omega_reward.mean().item():.3f} "
+-                f"yaw_omega={yaw_omega_reward.mean().item():.3f} "
++                f"direction={direction_reward.mean().item():.3f} "
+                 f"wrong_direction={wrong_direction_penalty.mean().item():.3f} "
++                f"penalty={penalty.mean().item():.3f} "
+             )
+ 
+         # env0の速度・角速度をログに出力
+@@ -432,9 +496,11 @@ class HumanoidAmpEnv(DirectRLEnv):
+                     f"step={self.common_step_counter} "
+                     f"target_v={self.target_v[0].item():.3f} "
+                     f"forward_v={forward_speed[0].item():.3f} "
++                    f"target_yaw={self.target_yaw[0].item():.3f} "
++                    f"yaw={yaw[0].item():.3f} "
++                    f"direction_error={torch.rad2deg(yaw_error[0]).item():.1f}deg "
+                     f"target_omega={self.target_omega[0].item():.3f} "
+                     f"root_omega={angular_velocity[0].item():.3f} "
+-                    f"yaw_omega={measured_omega[0].item():.3f} "
+                     f"waist_omega={waist_ang_vel[0, 2].item():.3f}\n"
+                 )
+ 
+@@ -478,10 +544,25 @@ class HumanoidAmpEnv(DirectRLEnv):
+         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+         _, _, yaw = euler_xyz_from_quat(root_state[:, 3:7])
++        self.prev_joint_pos[env_ids] = self.robot.data.joint_pos[env_ids].clone()
+         self.prev_yaw[env_ids] = yaw
+-
+-        # self.target_v[env_ids] = 0.5        #目標進行速度
+-        # self.target_omega[env_ids] = 0.5    #目標角速度
++        self.direction_reached[env_ids] = False
++        # 初期目標方向をランダムに設定
++        # self.target_yaw[env_ids] = torch.deg2rad(
++        #     torch.randint(-9, 10, (len(env_ids),), device=self.device).float() * 10.0
++        # )
++        # self.target_yaw[env_ids] = torch.deg2rad(
++        #     torch.full(
++        #         (len(env_ids),),
++        #     60.0,  # 目標方向（度）
++        #         device=self.device,
++        #     )
++        # )
++        # self.target_yaw[env_ids] = torch.deg2rad(
++        #     torch.randint(-1, 2, (len(env_ids),), device=self.device).float() * 30.0
++        # )
++        self.target_v[env_ids] = 0.3      #目標進行速度
++        self.target_omega[env_ids] = 0.0    #目標角速度
+         # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
+         # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
+         # mask = self.episode_length_buf >= self.next_command_step
+@@ -502,11 +583,11 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #             device=self.device,
+         #         )
+         #     )
+-        self.target_v[env_ids] = torch.rand(len(env_ids), device=self.device) * 1.0
+-        self.target_omega[env_ids] = torch.rand(len(env_ids), device=self.device) * 2.0 - 1.0
++        # self.target_v[env_ids] = torch.rand(len(env_ids), device=self.device) * 1.0
++        # self.target_omega[env_ids] = torch.rand(len(env_ids), device=self.device) * 2.0 - 1.0
+         
+-        interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
+-        self.next_command_step[env_ids] = self.episode_length_buf[env_ids] + interval
++        # interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        # self.next_command_step[env_ids] = self.episode_length_buf[env_ids] + interval
+     # reset strategies
+ 
+     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+@@ -696,6 +777,8 @@ def compute_policy_obs(
+     omega_error,
+     waist_omega,
+     head_omega,
++    direction_sin: torch.Tensor,
++    direction_cos: torch.Tensor,
+ ) -> torch.Tensor:
+     obs = torch.cat(
+         (
+@@ -711,6 +794,8 @@ def compute_policy_obs(
+             omega_error.unsqueeze(-1),
+             waist_omega,
+             head_omega,
++            direction_sin.unsqueeze(-1),
++            direction_cos.unsqueeze(-1),
+         ),
+         dim=-1,
+     )
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+index acd81a77d..b181566b1 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+@@ -29,7 +29,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
+     decimation = 2
+ 
+     # spaces
+-    observation_space = 85#次元を2+4つ追加
++    observation_space = 87#次元を2+4つ追加
+     action_space = 28
+     state_space = 0
+     num_amp_observations = 2

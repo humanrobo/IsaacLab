@@ -1,0 +1,69 @@
+ブランチ matsuno-work
+Your branch is up to date with 'origin/matsuno-work'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   scripts/reinforcement_learning/skrl/robot_state_latest.pt
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/agents/skrl_walk_amp_cfg.yaml
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+	modified:   source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+
+追跡されていないファイル:
+  (use "git add <file>..." to include in what will be committed)
+	experiments/train/20261027_171947_vel_order_dir/
+	experiments/train/20261027_172746_vel_order_dir/
+	experiments/train/20261027_173850_vel_order_dir/
+	experiments/train/20261027_183749_vel_order_dir/
+	experiments/train/20261027_195126_vel_order_dir/
+	experiments/train/20261027_204732_vel_order_dir/
+	experiments/train/20261027_210608_vel_order_dir/
+	experiments/train/20261027_220015_vel_order_dir/
+	experiments/train/20261027_220826_vel_order_dir/
+	experiments/train/20261027_224302_vel_order_dir/
+	experiments/train/20261028_101506_vel_order_dir/
+	experiments/train/20261028_101614_vel_order_dir/
+	experiments/train/20261028_105412_vel_order_dir/
+	experiments/train/20261028_111542_vel_order_dir/
+	experiments/train/20261028_114401_vel_order_dir/
+	experiments/train/20261028_115137_vel_order_dir/
+	experiments/train/20261028_115723_vel_order_dir/
+	experiments/train/20261028_120604_vel_order_dir/
+	experiments/train/20261028_121112_vel_order_dir/
+	experiments/train/20261028_125759_vel_order_dir/
+	experiments/train/20261028_132846_vel_order_dir/
+	experiments/train/20261028_141443_vel_order_dir/
+	experiments/train/20261028_142736_vel_order_dir/
+	experiments/train/20261028_144610_vel_order_dir/
+	experiments/train/20261028_145917_vel_order_dir/
+	experiments/train/20261028_151152_vel_order_dir/
+	experiments/train/20261028_152212_vel_order_dir/
+	experiments/train/20261028_153037_vel_order_dir/
+	experiments/train/20261028_201115_vel_order_dir/
+	experiments/train/20261028_203202_vel_order_dir/
+	experiments/train/20261028_210022_vel_order_dir/
+	experiments/train/20261028_220911_vel_order_dir/
+	experiments/train/20261028_235750_vel_order_dir/
+	experiments/train/20261029_100240_vel_order_dir/
+	experiments/train/20261029_102902_vel_order_dir/
+	experiments/train/20261029_111456_vel_order_dir/
+	experiments/train/20261029_112542_vel_order_dir/
+	experiments/train/20261029_121037_vel_order_dir/
+	experiments/train/20261029_123519_vel_order_dir/
+	experiments/train/20261029_124847_vel_order_dir/
+	experiments/train/20261029_133610_vel_order_dir/
+	experiments/train/20261029_135208_vel_order_dir/
+	experiments/train/20261029_140439_vel_order_dir/
+	experiments/train/20261029_141339_vel_order_dir/
+	experiments/train/20261029_141736_vel_order_dir/
+	experiments/train/20261029_142211_vel_order_dir/
+	experiments/train/20261029_150728_vel_order_dir/
+	experiments/train/20261029_174946_vel_order_dir/
+	experiments/train/20261029_182456_vel_order_dir/
+	experiments/train/20261029_202109_vel_order/
+	experiments/train/20261029_202207_vel_order/
+	experiments/train/20261029_203222_vel_order/
+	experiments/train/20261029_204852_vel_order/
+	experiments/train/20261029_210633_vel_order/
+
+no changes added to commit (use "git add" and/or "git commit -a")
