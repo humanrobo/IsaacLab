@@ -44,7 +44,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
     cfg: UnicycleHumanoid28EnvCfg
 
     def __init__(self, cfg, render_mode=None, **kwargs):
-        self.obstacle_stage = 10
+        self.obstacle_stage = 5
         self._unicycle_policy_path = "logs/skrl/unicycle_navigation/2026-09-29_15-01-37_ppo_torch/checkpoints/agent_30000.pt"
         self._unicycle_policy = None
         self._heightmap_generator = None
@@ -69,7 +69,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             param.requires_grad_(False)
         self.unicycle_running_mean = checkpoint["observation_preprocessor"]["running_mean"].to(self.device).float()
         self.unicycle_running_variance = checkpoint["observation_preprocessor"]["running_variance"].to(self.device).float()
-        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=True)
+        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=True, num_envs=self.num_envs,)
         # self._heightmap_generator = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False)
         self._unicycle_action = torch.zeros(self.num_envs, 2, device=self.device)
 
@@ -136,6 +136,8 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         #         ast.literal_eval(k) for k, v in semantic_info.items()
         #         if v.get("class") == "pushable"
         #     )
+        # 親クラスの処理を実行
+        super()._pre_physics_step(actions)
 
     # def _apply_action(self):
     #     target = self.action_offset + self.action_scale * self.actions
@@ -229,12 +231,17 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         turn_scale = 0.3
         self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] #n* prediction_time #n* turn_scale #n
         self.goal_yaw = torch.atan2(torch.sin(self.goal_yaw), torch.cos(self.goal_yaw))
+        # Unicycleの出力をHumanoidの目標速度・角速度に直接入力
+        # self.target_v = self._unicycle_action[:, 0]
+        # self.target_omega = self._unicycle_action[:, 1]
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         died, time_out = super()._get_dones()
         root_pos_w = self.robot.data.root_pos_w
         goal_dist = torch.norm(self.goal_pos_w - root_pos_w[:, :2], dim=1)
         goal_reached = goal_dist < 0.3
+        self.extras["reached_goal"] = goal_reached.clone()
+        self.extras["time_out"] = time_out.clone()
         died |= goal_reached
         return died, time_out
 
@@ -253,7 +260,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             # 障害物4個・ランダム位置
             for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3, self.obstacle_long]:
                 pos = torch.zeros((num_envs, 3), device=self.device)
-                pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(-0.5, 4.5)
+                pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(0.5, 4.5)
                 pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-3.5, 3.5)
                 pos[:, 2] = 0.25
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()

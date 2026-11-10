@@ -304,11 +304,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 actions = outputs[-1].get("mean_actions", outputs[0])
 
             obs, _, _, _, _ = env.step(actions)
-            print(
-                f"v={env.unwrapped.target_v[0].item():.2f}, "
-                f"omega={env.unwrapped.target_omega[0].item():.2f}"
-            )
+            # obs, rewards, terminated, truncated, infos = env.step(actions)
+            # print(
+            #     f"v={env.unwrapped.target_v[0].item():.2f}, "
+            #     f"omega={env.unwrapped.target_omega[0].item():.2f}"
+            # )
             states = env.state()
+
+            #episode終了条件を満たした場合はplayを終了する
+            # if terminated.any() or truncated.any():
+            #     print("Episode finished. Stopping play.")
+            #     break
 
         if args_cli.video:
             timestep += 1

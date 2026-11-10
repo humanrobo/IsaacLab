@@ -1,0 +1,73 @@
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index e2eab7eb4..eef654023 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -208,21 +208,22 @@ class HumanoidAmpEnv(DirectRLEnv):
+ 
+     def _pre_physics_step(self, actions: torch.Tensor):
+         # --- 10秒ごとに目標角速度をランダムに更新する処理 ---
+-        # interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
+-        # mask = self.episode_length_buf >= self.next_command_step
+-        # num = int(mask.sum().item())
+-        # if num > 0:
+-        #     # 速度を 0.0 ～ 1.0 の間でランダム変更する場合
+-        #     # self.target_v[mask] = (
+-        #     #     torch.rand(num, device=self.device) * 1.0
+-        #     # )
+-        #     # 角速度を -1.0 ～ 1.0 の間でランダム変更
+-        #     self.target_omega[mask] = (
+-        #         torch.rand(num, device=self.device) * 2.0 - 1.0
+-        #     )
+-        #     self.next_command_step[mask] = (
+-        #         self.episode_length_buf[mask] + interval
+-        #     )
++        interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        mask = self.episode_length_buf >= self.next_command_step
++        num = int(mask.sum().item())
++        if num > 0:
++            # 速度を 0.0 ～ 1.0 の間でランダム変更する場合
++            # self.target_v[mask] = (
++            #     torch.rand(num, device=self.device) * 1.0
++            # )
++            # 角速度を -1.0 ～ 1.0 の間でランダム変更
++            self.target_omega[mask] = (
++                torch.rand(num, device=self.device) * 2.0 - 1.0
++            )
++            self.next_command_step[mask] = (
++                self.episode_length_buf[mask] + interval
++            )
++
+         # 目標角速度を積分して目標方向を更新
+         dt = self.cfg.sim.dt * self.cfg.decimation
+         self.target_yaw = torch.atan2(
+@@ -604,15 +605,15 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #     torch.randint(-1, 2, (len(env_ids),), device=self.device).float() * 30.0
+         # )
+         self.target_v[env_ids] = 0.3      #目標進行速度
+-        self.target_omega[env_ids] = -0.5    #目標角速度
++        # self.target_omega[env_ids] = -0.5    #目標角速度
+         # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
+         # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
+         # mask = self.episode_length_buf >= self.next_command_step
+         # num = int(mask.sum().item())
+         # if num > 0:
+-        #     self.target_v[mask] = (
+-        #         torch.rand(num, device=self.device) * 0.5 + 0.5
+-        #     )
++        #     # self.target_v[mask] = (
++        #     #     torch.rand(num, device=self.device) * 0.5 + 0.5
++        #     # )
+         #     self.target_omega[mask] = (
+         #         torch.rand(num, device=self.device) * 2.0 - 1.0
+         #     )
+@@ -628,8 +629,8 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # self.target_v[env_ids] = torch.rand(len(env_ids), device=self.device) * 1.0
+         # self.target_omega[env_ids] = torch.rand(len(env_ids), device=self.device) * 2.0 - 1.0
+         
+-        # interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
+-        # self.next_command_step[env_ids] = self.episode_length_buf[env_ids] + interval
++        interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
++        self.next_command_step[env_ids] = self.episode_length_buf[env_ids] + interval
+     # reset strategies
+ 
+     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

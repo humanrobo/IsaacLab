@@ -347,7 +347,11 @@ class HumanoidAmpEnv(DirectRLEnv):
             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
         # build AMP observation
         self.amp_observation_buffer[:, 0] = amp_obs.clone()
-        self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
+        # self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
+        #goal_reachedを検出するため、辞書作り直しから追加法へ
+        self.extras["amp_obs"] = self.amp_observation_buffer.view(
+            -1, self.amp_observation_size
+        )
 
         #ロボットの方向に対する人歩行らしさを判定し、分布を出力
         if self.common_step_counter % 1000 == 0:
@@ -486,7 +490,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             + 1.0 * torso_omega_reward     # 胴体の目標旋回速度への追従            
             + 1.0 * waist_omega_reward     # 腰の目標旋回速度への追従                    
             + 1.0 * head_omega_reward      # 頭部の目標旋回速度への追従
-            # + 1.0 * velocity_reward        # 目標並進速度への追従  
+            + 1.0 * velocity_reward        # 目標並進速度への追従  
             # + 0.5 * height_reward          # 指定した高さ(1.0m)の維持
             # + 0.5 * waist_height_reward    # 腰の高さへの追従
             # + 0.5 * head_height_reward     # 頭の高さへの追従
@@ -527,19 +531,21 @@ class HumanoidAmpEnv(DirectRLEnv):
                 )
 
         #観測をエクセルに出力
-        if self.common_step_counter % 10 == 0:
-            with open(self.omega_log_path, "a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    self.common_step_counter,
-                    self.target_omega[0].item(),
-                    angular_velocity[0].item(),
-                    head_ang_vel[0, 2].item(),
-                    waist_ang_vel[0, 2].item(),
-                    omega_error[0].item(),
-                    self.target_yaw[0].item(),
-                    yaw_error[0].item(),
-                ])
+        # if self.common_step_counter % 10 == 0:
+        #     with open(self.omega_log_path, "a", newline="") as f:
+        #         writer = csv.writer(f)
+        #         writer.writerow([
+        #             self.common_step_counter,
+        #             # self.target_v[0].item(),
+        #             # forward_speed[0].item(),
+        #             self.target_omega[0].item(),
+        #             angular_velocity[0].item(),
+        #             head_ang_vel[0, 2].item(),
+        #             waist_ang_vel[0, 2].item(),
+        #             # omega_error[0].item(),
+        #             # self.target_yaw[0].item(),
+        #             # yaw_error[0].item(),
+        #         ])
 
         return reward
 
@@ -603,8 +609,8 @@ class HumanoidAmpEnv(DirectRLEnv):
         # self.target_yaw[env_ids] = torch.deg2rad(
         #     torch.randint(-1, 2, (len(env_ids),), device=self.device).float() * 30.0
         # )
-        self.target_v[env_ids] = 0.3      #目標進行速度
-        self.target_omega[env_ids] = -0.5    #目標角速度
+        self.target_v[env_ids] =0.0      #目標進行速度
+        self.target_omega[env_ids] = 0.0    #目標角速度
         # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
         # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
         # mask = self.episode_length_buf >= self.next_command_step
@@ -613,9 +619,9 @@ class HumanoidAmpEnv(DirectRLEnv):
         #     self.target_v[mask] = (
         #         torch.rand(num, device=self.device) * 0.5 + 0.5
         #     )
-        #     self.target_omega[mask] = (
-        #         torch.rand(num, device=self.device) * 2.0 - 1.0
-        #     )
+        #     # self.target_omega[mask] = (
+        #     #     torch.rand(num, device=self.device) * 2.0 - 1.0
+        #     # )
         #     self.next_command_step[mask] = (
         #         self.episode_length_buf[mask]
         #         + torch.randint(

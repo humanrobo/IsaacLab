@@ -1,0 +1,130 @@
+diff --git a/scripts/reinforcement_learning/skrl/play_defo.py b/scripts/reinforcement_learning/skrl/play_defo.py
+index 035f29552..1db0edd46 100644
+--- a/scripts/reinforcement_learning/skrl/play_defo.py
++++ b/scripts/reinforcement_learning/skrl/play_defo.py
+@@ -304,12 +304,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
+                 actions = outputs[-1].get("mean_actions", outputs[0])
+ 
+             obs, _, _, _, _ = env.step(actions)
+-            print(
+-                f"v={env.unwrapped.target_v[0].item():.2f}, "
+-                f"omega={env.unwrapped.target_omega[0].item():.2f}"
+-            )
++            # obs, rewards, terminated, truncated, infos = env.step(actions)
++            # print(
++            #     f"v={env.unwrapped.target_v[0].item():.2f}, "
++            #     f"omega={env.unwrapped.target_omega[0].item():.2f}"
++            # )
+             states = env.state()
+ 
++            #episode終了条件を満たした場合はplayを終了する
++            # if terminated.any() or truncated.any():
++            #     print("Episode finished. Stopping play.")
++            #     break
++
+         if args_cli.video:
+             timestep += 1
+             if timestep == args_cli.video_length:
+diff --git a/scripts/reinforcement_learning/skrl/robot_state_latest.pt b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+index 49689a4af..3e745541e 100644
+--- a/scripts/reinforcement_learning/skrl/robot_state_latest.pt
++++ b/scripts/reinforcement_learning/skrl/robot_state_latest.pt
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:b3012ebf7324a2af3f0ae3aee702983ffc70c43ad31e987c21ffee95fa33ff6b
++oid sha256:3011f83b630522a9567e5d00c02ef34f91dd6a63cb141275fffdaadbc7996b73
+ size 3616
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+index e2eab7eb4..ea32de51e 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env.py
+@@ -486,7 +486,7 @@ class HumanoidAmpEnv(DirectRLEnv):
+             + 1.0 * torso_omega_reward     # 胴体の目標旋回速度への追従            
+             + 1.0 * waist_omega_reward     # 腰の目標旋回速度への追従                    
+             + 1.0 * head_omega_reward      # 頭部の目標旋回速度への追従
+-            # + 1.0 * velocity_reward        # 目標並進速度への追従  
++            + 1.0 * velocity_reward        # 目標並進速度への追従  
+             # + 0.5 * height_reward          # 指定した高さ(1.0m)の維持
+             # + 0.5 * waist_height_reward    # 腰の高さへの追従
+             # + 0.5 * head_height_reward     # 頭の高さへの追従
+@@ -527,19 +527,19 @@ class HumanoidAmpEnv(DirectRLEnv):
+                 )
+ 
+         #観測をエクセルに出力
+-        if self.common_step_counter % 10 == 0:
+-            with open(self.omega_log_path, "a", newline="") as f:
+-                writer = csv.writer(f)
+-                writer.writerow([
+-                    self.common_step_counter,
+-                    self.target_omega[0].item(),
+-                    angular_velocity[0].item(),
+-                    head_ang_vel[0, 2].item(),
+-                    waist_ang_vel[0, 2].item(),
+-                    omega_error[0].item(),
+-                    self.target_yaw[0].item(),
+-                    yaw_error[0].item(),
+-                ])
++        # if self.common_step_counter % 10 == 0:
++        #     with open(self.omega_log_path, "a", newline="") as f:
++        #         writer = csv.writer(f)
++        #         writer.writerow([
++        #             self.common_step_counter,
++        #             self.target_omega[0].item(),
++        #             angular_velocity[0].item(),
++        #             head_ang_vel[0, 2].item(),
++        #             waist_ang_vel[0, 2].item(),
++        #             omega_error[0].item(),
++        #             self.target_yaw[0].item(),
++        #             yaw_error[0].item(),
++        #         ])
+ 
+         return reward
+ 
+@@ -603,8 +603,8 @@ class HumanoidAmpEnv(DirectRLEnv):
+         # self.target_yaw[env_ids] = torch.deg2rad(
+         #     torch.randint(-1, 2, (len(env_ids),), device=self.device).float() * 30.0
+         # )
+-        self.target_v[env_ids] = 0.3      #目標進行速度
+-        self.target_omega[env_ids] = -0.5    #目標角速度
++        # self.target_v[env_ids] = 0.3      #目標進行速度
++        # self.target_omega[env_ids] = 0.0    #目標角速度
+         # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
+         # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
+         # mask = self.episode_length_buf >= self.next_command_step
+@@ -613,9 +613,9 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #     self.target_v[mask] = (
+         #         torch.rand(num, device=self.device) * 0.5 + 0.5
+         #     )
+-        #     self.target_omega[mask] = (
+-        #         torch.rand(num, device=self.device) * 2.0 - 1.0
+-        #     )
++        #     # self.target_omega[mask] = (
++        #     #     torch.rand(num, device=self.device) * 2.0 - 1.0
++        #     # )
+         #     self.next_command_step[mask] = (
+         #         self.episode_length_buf[mask]
+         #         + torch.randint(
+@@ -625,8 +625,8 @@ class HumanoidAmpEnv(DirectRLEnv):
+         #             device=self.device,
+         #         )
+         #     )
+-        # self.target_v[env_ids] = torch.rand(len(env_ids), device=self.device) * 1.0
+-        # self.target_omega[env_ids] = torch.rand(len(env_ids), device=self.device) * 2.0 - 1.0
++        self.target_v[env_ids] = torch.rand(len(env_ids), device=self.device) * 1.0
++        self.target_omega[env_ids] = torch.rand(len(env_ids), device=self.device) * 2.0 - 1.0
+         
+         # interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
+         # self.next_command_step[env_ids] = self.episode_length_buf[env_ids] + interval
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+index b181566b1..60873e2da 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/direct/humanoid_amp/humanoid_amp_env_cfg.py
+@@ -40,7 +40,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
+ 
+     motion_file: str = MISSING
+     reference_body = "torso"
+-    reset_strategy = "random"  # default, random, random-start
++    reset_strategy = "default"  # default, random, random-start
+     """Strategy to be followed when resetting each environment (humanoid's pose and joint states).
+ 
+     * default: pose and joint states are set to the initial state of the asset.
