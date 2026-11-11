@@ -44,7 +44,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
     cfg: UnicycleHumanoid28EnvCfg
 
     def __init__(self, cfg, render_mode=None, **kwargs):
-        self.obstacle_stage = 5
+        self.obstacle_stage = 10
         self._unicycle_policy_path = "logs/skrl/unicycle_navigation/2026-09-29_15-01-37_ppo_torch/checkpoints/agent_30000.pt"
         self._unicycle_policy = None
         self._heightmap_generator = None
@@ -227,10 +227,10 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         self._unicycle_action[:, 1] = torch.clamp(self._unicycle_action[:, 1], -1.0, 1.0)
         self._unicycle_action[:, 0] *= 1.0
         self._unicycle_action[:, 1] *= 1.0
-        prediction_time = 0.5
-        turn_scale = 0.3
-        self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] #n* prediction_time #n* turn_scale #n
-        self.goal_yaw = torch.atan2(torch.sin(self.goal_yaw), torch.cos(self.goal_yaw))
+        # prediction_time = 0.5
+        # turn_scale = 0.3
+        # self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] #n* prediction_time #n* turn_scale #n
+        # self.goal_yaw = torch.atan2(torch.sin(self.goal_yaw), torch.cos(self.goal_yaw))
         # Unicycleの出力をHumanoidの目標速度・角速度に直接入力
         # self.target_v = self._unicycle_action[:, 0]
         # self.target_omega = self._unicycle_action[:, 1]
@@ -292,7 +292,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
                 pos = torch.zeros((num_envs, 3), device=self.device)
                 pos[:, 0] = 3.0
                 pos[:, 1] = y
-                pos[:, 2] = 0.25
+                pos[:, 2] = 1.0
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)

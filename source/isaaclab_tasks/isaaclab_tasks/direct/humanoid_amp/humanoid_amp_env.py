@@ -24,6 +24,8 @@ from tqdm import tqdm
 import os
 from isaaclab.utils.math import quat_from_euler_xyz
 import csv
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.utils.math import quat_apply
 
 
 class HumanoidAmpEnv(DirectRLEnv):
@@ -102,7 +104,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             dtype=torch.int32,
             device=self.device,
         )
-
+        #アクションノイズ
         self.use_action_noise = False
         
         # load motion
@@ -173,6 +175,19 @@ class HumanoidAmpEnv(DirectRLEnv):
                 "target_yaw",
                 "direction_error",
             ])
+        #方向確認前方表示用の赤点
+        marker_cfg = VisualizationMarkersCfg(
+            prim_path="/Visuals/robot_forward",
+            markers={
+                "red_dot": sim_utils.SphereCfg(
+                    radius=0.06,
+                    visual_material=sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=(1.0, 0.0, 0.0),
+                    ),
+                ),
+            },
+        )
+        self.forward_marker = VisualizationMarkers(marker_cfg)
 
         # reconfigure AMP observation space according to the number of observations and create the buffer
         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
@@ -389,6 +404,14 @@ class HumanoidAmpEnv(DirectRLEnv):
                     f"yaw          : {robot_yaw[0].item():.3f} rad\n"
                 )
 
+        # Humanoidの前方に赤点を表示
+        root_pos = self.robot.data.root_pos_w
+        root_quat = self.robot.data.root_quat_w
+        forward_offset = torch.zeros_like(root_pos)
+        forward_offset[:, 0] = 0.6
+        dot_pos = root_pos + quat_apply(root_quat, forward_offset)
+        self.forward_marker.visualize(translations=dot_pos)
+
         return {"policy": policy_obs}
 
     def _get_rewards(self) -> torch.Tensor:
@@ -582,7 +605,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             root_state, joint_pos, joint_vel = self._reset_strategy_random(env_ids, start)
         else:
             raise ValueError(f"Unknown reset strategy: {self.cfg.reset_strategy}")
-
+        
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
@@ -606,10 +629,8 @@ class HumanoidAmpEnv(DirectRLEnv):
         #         device=self.device,
         #     )
         # )
-        # self.target_yaw[env_ids] = torch.deg2rad(
-        #     torch.randint(-1, 2, (len(env_ids),), device=self.device).float() * 30.0
-        # )
-        self.target_v[env_ids] =0.0      #目標進行速度
+        self.target_yaw[env_ids] = 0.0
+        self.target_v[env_ids] =0.3      #目標進行速度
         self.target_omega[env_ids] = 0.0    #目標角速度
         # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
         # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))

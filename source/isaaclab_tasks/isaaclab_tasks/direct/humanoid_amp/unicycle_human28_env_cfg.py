@@ -183,7 +183,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
     obstacle_pushable1 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle1",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 1.0),
+            size=(0.5, 0.4, 2.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
@@ -192,12 +192,12 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
             mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
             semantic_tags=[("class", "pushable")],
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(2.0, 0.0, 0.1)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(2.0, 0.0, 2.0)),
     )
     obstacle_pushable2 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle2",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 1.0),
+            size=(0.5, 0.4, 2.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
@@ -206,12 +206,12 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
             mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
             semantic_tags=[("class", "pushable")],
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(3.0, 0.0, 0.1)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(3.0, 0.0, 2.0)),
     )
     obstacle_pushable3 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle3",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 1.0),
+            size=(0.5, 0.4, 2.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
@@ -220,7 +220,7 @@ class UnicycleHumanoid28EnvCfg(HumanoidAmpEnvCfg):
             mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
             semantic_tags=[("class", "pushable")],
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(4.0, 0.0, 0.1)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(4.0, 0.0, 2.0)),
     )
 
 @configclass

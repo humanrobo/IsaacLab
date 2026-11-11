@@ -274,6 +274,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     while simulation_app.is_running():
         start_time = time.time()
         with torch.inference_mode():
+            # 5体のロボットにそれぞれ異なる目標角速度を設定する
+            # target_omegas = torch.tensor(
+            #     [-1.0, -0.5, 0.0, 0.5, 1.0],
+            #     device=env.unwrapped.device,
+            # )
+            # env.unwrapped.target_omega[:5] = target_omegas
             if args_cli.manual:
                 if carb.input.KeyboardInput.W in pressed_keys:
                     env.unwrapped.target_v[:] += 0.01
@@ -304,13 +310,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 actions = outputs[-1].get("mean_actions", outputs[0])
 
             obs, _, _, _, _ = env.step(actions)
+            #ゴール達成率確認用
             # obs, rewards, terminated, truncated, infos = env.step(actions)
-            # print(
-            #     f"v={env.unwrapped.target_v[0].item():.2f}, "
-            #     f"omega={env.unwrapped.target_omega[0].item():.2f}"
-            # )
+            
             states = env.state()
 
+            #ゴール達成率確認用
             #episode終了条件を満たした場合はplayを終了する
             # if terminated.any() or truncated.any():
             #     print("Episode finished. Stopping play.")
