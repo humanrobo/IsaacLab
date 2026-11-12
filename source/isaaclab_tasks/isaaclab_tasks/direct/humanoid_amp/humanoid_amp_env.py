@@ -24,8 +24,9 @@ from tqdm import tqdm
 import os
 from isaaclab.utils.math import quat_from_euler_xyz
 import csv
-from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
-from isaaclab.utils.math import quat_apply
+from isaaclab.assets import Articulation, RigidObject
+from isaaclab.sensors import ContactSensor
+from pxr import PhysxSchema
 
 
 class HumanoidAmpEnv(DirectRLEnv):
@@ -33,6 +34,9 @@ class HumanoidAmpEnv(DirectRLEnv):
 
     def __init__(self, cfg: HumanoidAmpEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+        self.contact_sensor = self.scene.sensors["contact_forces"]
+        self.left_foot_sensor_idx = self.contact_sensor.body_names.index("left_foot")
+        self.right_foot_sensor_idx = self.contact_sensor.body_names.index("right_foot")
         # --- クラスの初期化（__init__など）に追加 ---------------------
         # # 確認用コード（実行するとターミナルにリンク名一覧が出ます）
         # print("--- H1 Robot Available Body Names ---")
@@ -104,7 +108,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             dtype=torch.int32,
             device=self.device,
         )
-        #アクションノイズ
+
         self.use_action_noise = False
         
         # load motion
@@ -175,19 +179,19 @@ class HumanoidAmpEnv(DirectRLEnv):
                 "target_yaw",
                 "direction_error",
             ])
-        #方向確認前方表示用の赤点
-        marker_cfg = VisualizationMarkersCfg(
-            prim_path="/Visuals/robot_forward",
-            markers={
-                "red_dot": sim_utils.SphereCfg(
-                    radius=0.06,
-                    visual_material=sim_utils.PreviewSurfaceCfg(
-                        diffuse_color=(1.0, 0.0, 0.0),
-                    ),
-                ),
-            },
+        #足の接触力
+        os.makedirs("/tmp/humanoid_debug", exist_ok=True)
+        self._contact_csv_file = open(
+            "/tmp/humanoid_debug/foot_contact_force_false.csv",
+            "w",
+            newline=""
         )
-        self.forward_marker = VisualizationMarkers(marker_cfg)
+        self._contact_csv_writer = csv.writer(self._contact_csv_file)
+        self._contact_csv_writer.writerow([
+            "step",
+            "left_fx", "left_fy", "left_fz", "left_force_mag",
+            "right_fx", "right_fy", "right_fz", "right_force_mag",
+        ])
 
         # reconfigure AMP observation space according to the number of observations and create the buffer
         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
@@ -198,6 +202,7 @@ class HumanoidAmpEnv(DirectRLEnv):
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
+        self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
         # add ground plane
         spawn_ground_plane(
             prim_path="/World/ground",
@@ -220,6 +225,114 @@ class HumanoidAmpEnv(DirectRLEnv):
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
+
+        #不具合確認用障害物
+        self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
+        self.contact_sensor = ContactSensor(self.cfg.contact_forces)
+        self.scene.sensors["contact_forces"] = self.contact_sensor
+
+    def _log_foot_contact_force(self):
+
+        forces = self.contact_sensor.data.net_forces_w[0]
+
+        left_force = forces[self.left_foot_sensor_idx]
+        right_force = forces[self.right_foot_sensor_idx]
+
+        left_mag = torch.norm(left_force)
+        right_mag = torch.norm(right_force)
+
+        self._contact_csv_writer.writerow([
+            self.common_step_counter,
+            left_force[0].item(),
+            left_force[1].item(),
+            left_force[2].item(),
+            left_mag.item(),
+            right_force[0].item(),
+            right_force[1].item(),
+            right_force[2].item(),
+            right_mag.item(),
+        ])
+
+        self._contact_csv_file.flush()
+
+    def _log_debug_data(self):
+        # env0のみ記録
+        if not hasattr(self, "_debug_csv"):
+            os.makedirs("/tmp/humanoid_debug", exist_ok=True)
+            self._debug_file = open(
+                "/tmp/humanoid_debug/kinematic_true_debug.csv",
+                "w",
+                newline=""
+            )
+            self._debug_csv = None
+            self._debug_step = 0
+
+        robot = self.robot
+        data = robot.data
+
+        if self._debug_csv is None:
+            self._debug_csv = csv.writer(self._debug_file)
+            header = ["step", "time"]
+
+            # Joint
+            for name in data.joint_names:
+                header += [
+                    f"{name}_pos",
+                    f"{name}_vel",
+                    f"{name}_acc",
+                ]
+
+            # Body
+            for name in data.body_names:
+                # Position
+                for axis in ["x", "y", "z"]:
+                    header.append(f"{name}_pos_{axis}")
+
+                # Linear velocity
+                for axis in ["x", "y", "z"]:
+                    header.append(f"{name}_linvel_{axis}")
+
+                # Angular velocity
+                for axis in ["x", "y", "z"]:
+                    header.append(f"{name}_angvel_{axis}")
+
+                # Quaternion
+                for axis in ["w", "x", "y", "z"]:
+                    header.append(f"{name}_quat_{axis}")
+
+            self._debug_csv.writerow(header)
+
+        row = [
+            self._debug_step,
+            self._debug_step * self.physics_dt,
+        ]
+
+        # Joint data
+        for i in range(len(data.joint_names)):
+            row += [
+                data.joint_pos[0, i].item(),
+                data.joint_vel[0, i].item(),
+                data.joint_acc[0, i].item(),
+            ]
+
+        # Body data (World Frame)
+        for i in range(len(data.body_names)):
+            pos = data.body_pos_w[0, i]
+            quat = data.body_quat_w[0, i]
+            lin_vel = data.body_lin_vel_w[0, i]
+            ang_vel = data.body_ang_vel_w[0, i]
+
+            row += pos.tolist()
+            row += lin_vel.tolist()
+            row += ang_vel.tolist()
+            row += quat.tolist()
+
+        self._debug_csv.writerow(row)
+
+        self._debug_step += 1
+
+        if self._debug_step % 100 == 0:
+            self._debug_file.flush()
 
     def _pre_physics_step(self, actions: torch.Tensor):
         # --- 10秒ごとに目標角速度をランダムに更新する処理 ---
@@ -246,7 +359,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         )
         # ----------------------------------------------------
         if self.use_action_noise:
-            # print("Action noise: ON")
+            print("Action noise: ON")
             noise_std = 0.05
             noise = torch.randn_like(actions) * noise_std
             actions = actions + noise
@@ -394,23 +507,18 @@ class HumanoidAmpEnv(DirectRLEnv):
                         output_path,  # フルパスを指定して保存
                     )
 
-        if self.episode_length_buf[0] % 30 == 0:
-            with open("/tmp/env0_velocity.txt", "w") as f:
-                f.write(
-                    f"Target v     : {self.target_v[0].item():.3f} m/s\n"
-                    f"Current v    : {local_lin_vel[0, 0].item():.3f} m/s\n"
-                    f"Target omega : {self.target_omega[0].item():.3f} rad/s\n"
-                    f"Current omega: {local_ang_vel[0, 2].item():.3f} rad/s\n"
-                    f"yaw          : {robot_yaw[0].item():.3f} rad\n"
-                )
+        # if self.episode_length_buf[0] % 30 == 0:
+        #     with open("/tmp/env0_velocity.txt", "w") as f:
+        #         f.write(
+        #             f"Target v     : {self.target_v[0].item():.3f} m/s\n"
+        #             f"Current v    : {local_lin_vel[0, 0].item():.3f} m/s\n"
+        #             f"Target omega : {self.target_omega[0].item():.3f} rad/s\n"
+        #             f"Current omega: {local_ang_vel[0, 2].item():.3f} rad/s\n"
+        #             f"yaw          : {robot_yaw[0].item():.3f} rad\n"
+        #         )
 
-        # Humanoidの前方に赤点を表示
-        root_pos = self.robot.data.root_pos_w
-        root_quat = self.robot.data.root_quat_w
-        forward_offset = torch.zeros_like(root_pos)
-        forward_offset[:, 0] = 0.6
-        dot_pos = root_pos + quat_apply(root_quat, forward_offset)
-        self.forward_marker.visualize(translations=dot_pos)
+        self._log_foot_contact_force()
+        self._log_debug_data()
 
         return {"policy": policy_obs}
 
@@ -630,7 +738,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         #     )
         # )
         self.target_yaw[env_ids] = 0.0
-        self.target_v[env_ids] =0.3      #目標進行速度
+        self.target_v[env_ids] =0.0      #目標進行速度
         self.target_omega[env_ids] = 0.0    #目標角速度
         # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
         # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
