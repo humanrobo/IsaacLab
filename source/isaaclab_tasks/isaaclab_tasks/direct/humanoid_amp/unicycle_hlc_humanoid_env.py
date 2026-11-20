@@ -353,6 +353,7 @@ class UnicycleHLCHumanoidEnv(HumanoidAmpEnv):
             self.camera_humanoid,
             humanoid_pos_w,
             humanoid_yaw,
+            1.4,  # カメラのワールドZ座標
             semantic,
             self.pushable_color,
         )

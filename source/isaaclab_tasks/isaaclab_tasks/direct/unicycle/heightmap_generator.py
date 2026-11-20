@@ -124,8 +124,9 @@ class HeightMapGenerator:
         #     norm = np.zeros_like(height_map)
         # else:
         #     norm = (height_map - hmin) / (hmax - hmin)
-        hm = np.clip(height_map, 0.0, 0.5)
-        norm = hm / 0.5
+        # 0～1にクリップ（地面=0、カメラ高さ=1）
+        hm = np.clip(height_map, 0.0, 1.0)
+        norm = hm
         rgb = plt.get_cmap("jet")(norm)
         rgb = (rgb[:, :, :3] * 255).astype(np.uint8)
         img = Image.fromarray(rgb, mode="RGB").convert("RGBA")
@@ -279,6 +280,13 @@ class HeightMapGenerator:
         self.shift_accum_y[env_ids] = 0.0
         self.prev_valid[env_ids] = False
 
+    # 高さをカメラ位置で正規化
+    def normalize_heightmap(self, height_map, ground_height, camera_height):
+        height_map = (height_map - ground_height) / (
+            camera_height - ground_height
+        )
+        return torch.clamp(height_map, 0.0, 1.0)
+
     # ================================================================
     # Generate
     # ================================================================
@@ -313,7 +321,7 @@ class HeightMapGenerator:
     # ================================================================
     # Generateカメラで
     # ================================================================
-    def generate_from_depth(self, depth, camera, robot_pos, robot_yaw, semantic=None, pushable_color=None):
+    def generate_from_depth(self, depth, camera, robot_pos, robot_yaw, camera_height, semantic=None, pushable_color=None):
         N = depth.shape[0]
         device = depth.device
         depth = depth.squeeze(-1)
@@ -450,16 +458,20 @@ class HeightMapGenerator:
         )
         # if self.gui_enabled:
         #     self.update_gui(height_maps, robot_pos)
+        height_maps = self.normalize_heightmap(
+            height_maps, 0, camera_height
+        )
         #uncycle_humanoidではgui表示で重くて歩行失敗するので間引く
         if self.gui_enabled and self.gui_update_counter % 50 == 0:
             self.update_gui(height_maps, robot_pos)
         self.gui_update_counter += 1
+
         return height_maps
 
     # ================================================================
     # 水平ray
     # ================================================================
-    def generate_from_ray(self, ray_hits_w, robot_pos, robot_yaw):
+    def generate_from_ray(self, ray_hits_w, robot_pos, robot_yaw, camera_height):
         N = ray_hits_w.shape[0]
         device = ray_hits_w.device
         xmin = robot_pos[:, 0] - self.map_size / 2.0
@@ -570,6 +582,9 @@ class HeightMapGenerator:
         height_maps = self.rotate_to_robot_frame(
             height_maps,
             robot_yaw - torch.pi / 2,
+        )
+        height_maps = self.normalize_heightmap(
+            height_maps, 0, camera_height
         )
         if self.gui_enabled:
             self.update_gui(height_maps, robot_pos)

@@ -33,7 +33,7 @@ class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
 
     def __init__(self, cfg: UnicycleEnvCfg, render_mode: str | None = None, **kwargs):
-        self.obstacle_stage = 5
+        self.obstacle_stage = None
         super().__init__(cfg, render_mode, **kwargs)
         self.obstacle_stages = torch.full(
             (self.num_envs,),
@@ -52,6 +52,25 @@ class UnicycleEnv(DirectRLEnv):
         # アクションのスケールとオフセット（必要に応じて調整）
         self.action_scale_lin = 1.0   # 最大線速度 [m/s]
         self.action_scale_ang = 2.0   # 最大角速度 [rad/s]
+        # ランダム移動外乱
+        self.use_disturbance = True  # 外乱のON/OFF
+        self.disturbance_x = torch.zeros(self.num_envs, device=self.device)
+        self.disturbance_y = torch.zeros(self.num_envs, device=self.device)
+        self.disturbance_omega = torch.zeros(self.num_envs, device=self.device)
+        self.disturbance_interval = 10
+        self.disturbance_probability = 0.3
+        self.disturbance_max_xy = 0.2       # m/s
+        self.disturbance_max_omega = 0.2    # rad/s
+        # アクションノイズ
+        self.use_action_noise = True  # アクションノイズのON/OFF
+        self.action_noise_interval = 10
+        self.action_noise_probability = 0.3
+        self.action_noise_std = torch.tensor(
+            [0.1, 0.1],
+            device=self.device
+        )
+        self.disturbance_step = 0
+        self.action_noise_step = 0
         # ==========================================
         # 報酬用変数
         # ==========================================
@@ -174,95 +193,43 @@ class UnicycleEnv(DirectRLEnv):
             gui_update_interval=10,
         )
 
-    def _setup_scene(self):
-        self.robot = RigidObject(self.cfg.robot)
-        self.camera = Camera(self.cfg.camera)
-        # self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
-            self.obstacle1 = RigidObject(self.cfg.obstacle1)
-            self.scene.rigid_objects["obstacle1"] = self.obstacle1
-        if self.obstacle_stage in [2, 5, 7, 9, 10]:
-            self.obstacle2 = RigidObject(self.cfg.obstacle2)
-            self.scene.rigid_objects["obstacle2"] = self.obstacle2
-        if self.obstacle_stage == 5:
-            self.obstacle3 = RigidObject(self.cfg.obstacle3)
-            self.scene.rigid_objects["obstacle3"] = self.obstacle3
-        if self.obstacle_stage in [5, 6, 11]:
-            self.obstacle_long = RigidObject(self.cfg.obstacle_long)
-            self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
-        if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
-            self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
-            self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
-        if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
-            self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
-            self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
-        if self.obstacle_stage in [12]:
-            self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
-            self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
-        if self.obstacle_stage in [12]:
-            self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
-            self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
-        if self.obstacle_stage in [8, 9, 10]:
-            self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
-            self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
-        if self.obstacle_stage in [10]:
-            self.obstacle_pushable2 = RigidObject(self.cfg.obstacle_pushable2)
-            self.scene.rigid_objects["obstacle_pushable2"] = self.obstacle_pushable2
-        if self.obstacle_stage in [10]:
-            self.obstacle_pushable3 = RigidObject(self.cfg.obstacle_pushable3)
-            self.scene.rigid_objects["obstacle_pushable3"] = self.obstacle_pushable3
-        stage = self.sim.stage
-        barrier_path = "/World/envs/env_0/Robot/Barrier"
-        barrier = UsdGeom.Cube.Define(stage, barrier_path)
-        barrier.CreateSizeAttr(1.0)
-        xform = UsdGeom.Xformable(barrier.GetPrim())
-        xform.AddTranslateOp().Set(Gf.Vec3d(0.30, 0.0, 0.25))
-        xform.AddScaleOp().Set(Gf.Vec3d(0.025, 0.25, 0.25))
-        UsdPhysics.CollisionAPI.Apply(barrier.GetPrim())
-        UsdGeom.Imageable(barrier.GetPrim()).MakeInvisible()
-
-        spawn_ground_plane(
-            prim_path="/World/ground",
-            cfg=GroundPlaneCfg(
-                physics_material=sim_utils.RigidBodyMaterialCfg(
-                    static_friction=1.0,
-                    dynamic_friction=1.0,
-                    restitution=0.0,
-                ),
-            ),
-        )
-        self.scene.clone_environments(copy_from_source=False)
-        if self.device == "cpu":
-            self.scene.filter_collisions(global_prim_paths=["/World/ground"])
-        self.scene.rigid_objects["robot"] = self.robot
-        self.scene.sensors["camera"] = self.camera
-        # self.scene.sensors["ray_caster"] = self.ray_caster
-        light_cfg = sim_utils.DomeLightCfg(
-            intensity=2000.0,
-            color=(0.75, 0.75, 0.75),
-        )
-        light_cfg.func("/World/Light", light_cfg)
-
     # def _setup_scene(self):
     #     self.robot = RigidObject(self.cfg.robot)
     #     # self.camera = Camera(self.cfg.camera)
     #     self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
-    #     self.obstacle1 = RigidObject(self.cfg.obstacle1)
-    #     self.scene.rigid_objects["obstacle1"] = self.obstacle1
-    #     self.obstacle2 = RigidObject(self.cfg.obstacle2)
-    #     self.scene.rigid_objects["obstacle2"] = self.obstacle2
-    #     self.obstacle3 = RigidObject(self.cfg.obstacle3)
-    #     self.scene.rigid_objects["obstacle3"] = self.obstacle3
-    #     self.obstacle_long = RigidObject(self.cfg.obstacle_long)
-    #     self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
-    #     self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
-    #     self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
-    #     self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
-    #     self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
-    #     self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
-    #     self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
-    #     self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
-    #     self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
+    #     if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
+    #         self.obstacle1 = RigidObject(self.cfg.obstacle1)
+    #         self.scene.rigid_objects["obstacle1"] = self.obstacle1
+    #     if self.obstacle_stage in [2, 5, 7, 9, 10]:
+    #         self.obstacle2 = RigidObject(self.cfg.obstacle2)
+    #         self.scene.rigid_objects["obstacle2"] = self.obstacle2
+    #     if self.obstacle_stage == 5:
+    #         self.obstacle3 = RigidObject(self.cfg.obstacle3)
+    #         self.scene.rigid_objects["obstacle3"] = self.obstacle3
+    #     if self.obstacle_stage in [5, 6, 11]:
+    #         self.obstacle_long = RigidObject(self.cfg.obstacle_long)
+    #         self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
+    #     if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
+    #         self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
+    #         self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
+    #     if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
+    #         self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
+    #         self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
+    #     if self.obstacle_stage in [12]:
+    #         self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
+    #         self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
+    #     if self.obstacle_stage in [12]:
+    #         self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
+    #         self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
+    #     if self.obstacle_stage in [8, 9, 10]:
+    #         self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
+    #         self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
+    #     if self.obstacle_stage in [10]:
+    #         self.obstacle_pushable2 = RigidObject(self.cfg.obstacle_pushable2)
+    #         self.scene.rigid_objects["obstacle_pushable2"] = self.obstacle_pushable2
+    #     if self.obstacle_stage in [10]:
+    #         self.obstacle_pushable3 = RigidObject(self.cfg.obstacle_pushable3)
+    #         self.scene.rigid_objects["obstacle_pushable3"] = self.obstacle_pushable3
     #     stage = self.sim.stage
     #     barrier_path = "/World/envs/env_0/Robot/Barrier"
     #     barrier = UsdGeom.Cube.Define(stage, barrier_path)
@@ -295,36 +262,159 @@ class UnicycleEnv(DirectRLEnv):
     #     )
     #     light_cfg.func("/World/Light", light_cfg)
 
+    def _setup_scene(self):
+        self.robot = RigidObject(self.cfg.robot)
+        # self.camera = Camera(self.cfg.camera)
+        self.ray_caster = MultiMeshRayCaster(self.cfg.ray_caster)
+        self.obstacle1 = RigidObject(self.cfg.obstacle1)
+        self.scene.rigid_objects["obstacle1"] = self.obstacle1
+        self.obstacle2 = RigidObject(self.cfg.obstacle2)
+        self.scene.rigid_objects["obstacle2"] = self.obstacle2
+        self.obstacle3 = RigidObject(self.cfg.obstacle3)
+        self.scene.rigid_objects["obstacle3"] = self.obstacle3
+        self.obstacle_long = RigidObject(self.cfg.obstacle_long)
+        self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
+        self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
+        self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
+        self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
+        self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
+        self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
+        self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
+        self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
+        self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
+        stage = self.sim.stage
+        barrier_path = "/World/envs/env_0/Robot/Barrier"
+        barrier = UsdGeom.Cube.Define(stage, barrier_path)
+        barrier.CreateSizeAttr(1.0)
+        xform = UsdGeom.Xformable(barrier.GetPrim())
+        xform.AddTranslateOp().Set(Gf.Vec3d(0.30, 0.0, 0.25))
+        xform.AddScaleOp().Set(Gf.Vec3d(0.025, 0.25, 0.25))
+        UsdPhysics.CollisionAPI.Apply(barrier.GetPrim())
+        UsdGeom.Imageable(barrier.GetPrim()).MakeInvisible()
+
+        spawn_ground_plane(
+            prim_path="/World/ground",
+            cfg=GroundPlaneCfg(
+                physics_material=sim_utils.RigidBodyMaterialCfg(
+                    static_friction=1.0,
+                    dynamic_friction=1.0,
+                    restitution=0.0,
+                ),
+            ),
+        )
+        self.scene.clone_environments(copy_from_source=False)
+        if self.device == "cpu":
+            self.scene.filter_collisions(global_prim_paths=["/World/ground"])
+        self.scene.rigid_objects["robot"] = self.robot
+        # self.scene.sensors["camera"] = self.camera
+        self.scene.sensors["ray_caster"] = self.ray_caster
+        light_cfg = sim_utils.DomeLightCfg(
+            intensity=2000.0,
+            color=(0.75, 0.75, 0.75),
+        )
+        light_cfg.func("/World/Light", light_cfg)
+
     def _pre_physics_step(self, actions: torch.Tensor):
         # actions: [num_envs, 2] -> [線速度, 角速度] を想定
         self.actions = torch.clamp(actions, -1.0, 1.0)
+        # ==========================================
+        # ランダム移動外乱
+        # ==========================================
+        if self.use_disturbance:
+            self.disturbance_step += 1
+            if self.disturbance_step % self.disturbance_interval == 0:
+                trigger = (
+                    torch.rand(self.num_envs, device=self.device)
+                    < self.disturbance_probability
+                )
+                self.disturbance_x = torch.where(
+                    trigger,
+                    (torch.rand(self.num_envs, device=self.device) * 2 - 1)
+                    * self.disturbance_max_xy,
+                    torch.zeros_like(self.disturbance_x),
+                )
+                self.disturbance_y = torch.where(
+                    trigger,
+                    (torch.rand(self.num_envs, device=self.device) * 2 - 1)
+                    * self.disturbance_max_xy,
+                    torch.zeros_like(self.disturbance_y),
+                )
+                self.disturbance_omega = torch.where(
+                    trigger,
+                    (torch.rand(self.num_envs, device=self.device) * 2 - 1)
+                    * self.disturbance_max_omega,
+                    torch.zeros_like(self.disturbance_omega),
+                )
+        else:
+            self.disturbance_x.zero_()
+            self.disturbance_y.zero_()
+            self.disturbance_omega.zero_()
+        # ==========================================
+        # アクションノイズ
+        # ==========================================
+        if self.use_action_noise:
+            self.action_noise_step += 1
+            if self.action_noise_step % self.action_noise_interval == 0:
+                noise_trigger = (
+                    torch.rand(self.num_envs, 1, device=self.device)
+                    < self.action_noise_probability
+                )
+                noise = torch.randn_like(self.actions) * self.action_noise_std
+                self.actions = torch.clamp(
+                    self.actions + noise * noise_trigger,
+                    -1.0,
+                    1.0,
+                )
         #semseg各クラスがID割り当てられたときに、pushableのIDを探す
-        if self.pushable_color is None:
-            semantic_info = self.camera.data.info[0]["semantic_segmentation"]["idToLabels"]
-            self.pushable_color = next(
-                ast.literal_eval(k) for k, v in semantic_info.items()
-                if v.get("class") == "pushable"
-            )
+        # if self.pushable_color is None:
+        #     semantic_info = self.camera.data.info[0]["semantic_segmentation"]["idToLabels"]
+        #     self.pushable_color = next(
+        #         ast.literal_eval(k) for k, v in semantic_info.items()
+        #         if v.get("class") == "pushable"
+        #     )
 
     def _apply_action(self):
         # ユニサイクルモデルへの速度指令（Velocities）を直接適用
         v = self.actions[:, 0] * self.action_scale_lin
         omega = self.actions[:, 1] * self.action_scale_ang
-
         self.current_v = v
-
         # 現在の向き（yaw）を取得
         root_rot_w = self.robot.data.root_quat_w
         _, _, robot_yaw = euler_xyz_from_quat(root_rot_w)
-
-        # 2次元平面でのワールド速度成分へ変換 (vx = v * cos(yaw), vy = v * sin(yaw))
-        vx = v * torch.cos(robot_yaw)
-        vy = v * torch.sin(robot_yaw)
-
-        # 根元（Root）の速度を設定 [vx, vy, vz=0] および [omega_x=0, omega_y=0, omega_z=omega]
-        root_lin_vel = torch.stack([vx, vy, torch.zeros_like(vx)], dim=-1)
-        root_ang_vel = torch.stack([torch.zeros_like(omega), torch.zeros_like(omega), omega], dim=-1)
-
+        # # 2次元平面でのワールド速度成分へ変換 (vx = v * cos(yaw), vy = v * sin(yaw))
+        # vx = v * torch.cos(robot_yaw)
+        # vy = v * torch.sin(robot_yaw)
+        # # 根元（Root）の速度を設定 [vx, vy, vz=0] および [omega_x=0, omega_y=0, omega_z=omega]
+        # root_lin_vel = torch.stack([vx, vy, torch.zeros_like(vx)], dim=-1)
+        # root_ang_vel = torch.stack([torch.zeros_like(omega), torch.zeros_like(omega), omega], dim=-1)
+        # self.robot.write_root_com_velocity_to_sim(
+        #     torch.cat([root_lin_vel, root_ang_vel], dim=-1)
+        # )
+        # ==========================================
+        # 通常のUnicycle速度 + 移動外乱
+        # ==========================================
+        vx = (
+            v * torch.cos(robot_yaw)
+            + self.disturbance_x
+        )
+        vy = (
+            v * torch.sin(robot_yaw)
+            + self.disturbance_y
+        )
+        omega = omega + self.disturbance_omega
+        # Root速度を設定
+        root_lin_vel = torch.stack(
+            [vx, vy, torch.zeros_like(vx)],
+            dim=-1
+        )
+        root_ang_vel = torch.stack(
+            [
+                torch.zeros_like(omega),
+                torch.zeros_like(omega),
+                omega
+            ],
+            dim=-1
+        )
         self.robot.write_root_com_velocity_to_sim(
             torch.cat([root_lin_vel, root_ang_vel], dim=-1)
         )
@@ -393,35 +483,37 @@ class UnicycleEnv(DirectRLEnv):
         local_lin_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_lin_vel_w)
         local_ang_vel = quat_apply_inverse(yaw_quat(root_rot_w), root_ang_vel_w)
         #ヒートマップ作成
-        semantic = self.camera.data.output["semantic_segmentation"]
-        depth = self.camera.data.output["distance_to_image_plane"]
-        height_map = self.heightmap_generator.generate_from_depth(
-            depth,
-            self.camera,
+        # semantic = self.camera.data.output["semantic_segmentation"]
+        # depth = self.camera.data.output["distance_to_image_plane"]
+        # height_map = self.heightmap_generator.generate_from_depth(
+        #     depth,
+        #     self.camera,
+        #     root_pos_w,
+        #     robot_yaw,
+        #     camera_height = root_pos_w[:, 2],
+        #     semantic,
+        #     self.pushable_color,
+        # )
+        # self.current_heightmap = height_map
+        # height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
+
+        ray_heightmap = torch.zeros(
+            (self.num_envs, 1, 64, 64),
+            device=self.device
+        )
+        ray_data = self.scene.sensors["ray_caster"].data
+        ray_hits_w = ray_data.ray_hits_w
+        ray_heightmap = self.ray_heightmap_generator.generate(
+            ray_hits_w
+        )
+        ray_heightmap = ray_heightmap.squeeze(1)
+        ray_heightmap = self.heightmap_generator.generate_from_ray(
+            ray_hits_w,
             root_pos_w,
             robot_yaw,
-            semantic,
-            self.pushable_color,
+            camera_height = root_pos_w[:, 2]
         )
-        self.current_heightmap = height_map
-        height_map = height_map.unsqueeze(1)  # (N, 1, 80, 80) そのままconv2dへ
-
-        # ray_heightmap = torch.zeros(
-        #     (self.num_envs, 1, 64, 64),
-        #     device=self.device
-        # )
-        # ray_data = self.scene.sensors["ray_caster"].data
-        # ray_hits_w = ray_data.ray_hits_w
-        # ray_heightmap = self.ray_heightmap_generator.generate(
-        #     ray_hits_w
-        # )
-        # ray_heightmap = ray_heightmap.squeeze(1)
-        # ray_heightmap = self.heightmap_generator.generate_from_ray(
-        #     ray_hits_w,
-        #     root_pos_w,
-        #     robot_yaw
-        # )
-        # self.current_heightmap = ray_heightmap
+        self.current_heightmap = ray_heightmap
         # print("ray_heightmap:", ray_heightmap.shape)
 
         # ポリシー観測値の構築 (キューブの速度、姿勢、ゴールまでの相対位置・方位誤差など)
@@ -436,7 +528,7 @@ class UnicycleEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": height_map}} #ray_heightmap
+        return {"policy": {"policy_obs": policy_obs, "ray_heightmap": ray_heightmap}} #height_map
 
     def _get_rewards(self) -> torch.Tensor:
         # ==========================================
@@ -912,6 +1004,10 @@ class UnicycleEnv(DirectRLEnv):
         root_state[:, 6] = torch.sin(yaw / 2.0)
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
+        #外乱
+        self.disturbance_x[env_ids] = 0.0
+        self.disturbance_y[env_ids] = 0.0
+        self.disturbance_omega[env_ids] = 0.0
 
         # リセット時にランダムな目標座標（ゴール）を生成
         # init_xy = root_state[:, :2]
