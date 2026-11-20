@@ -9,10 +9,14 @@ AMP Humanoid locomotion environment.
 
 import gymnasium as gym
 
+from isaaclab_tasks.direct.humanoid_amp.unicycle_hlc_humanoid_env_cfg import UnicycleHLCHumanoid28EnvCfg
+
 from . import agents
 
 from .unicycle_human28_env import UnicycleHumanoid28Env
 from .unicycle_human28_env_cfg import UnicycleHumanoid28EnvCfg
+from .unicycle_hlc_humanoid_env import UnicycleHLCHumanoidEnv
+from .unicycle_hlc_humanoid_env import UnicycleHLCHumanoid28EnvCfg
 ##
 # Register Gym environments.
 ##
@@ -65,5 +69,15 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": UnicycleHumanoid28EnvCfg,
         "skrl_amp_cfg_entry_point": f"{agents.__name__}:skrl_walk_amp_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Unicycle-HLC-Humanoid28-v0",
+    entry_point="isaaclab_tasks.direct.humanoid_amp:UnicycleHLCHumanoidEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": UnicycleHLCHumanoid28EnvCfg,
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_hlc_ppo_cfg.yaml",
     },
 )

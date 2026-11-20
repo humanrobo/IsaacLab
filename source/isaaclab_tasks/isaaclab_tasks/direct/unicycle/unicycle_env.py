@@ -33,7 +33,7 @@ class UnicycleEnv(DirectRLEnv):
     cfg: UnicycleEnvCfg
 
     def __init__(self, cfg: UnicycleEnvCfg, render_mode: str | None = None, **kwargs):
-        self.obstacle_stage = 10
+        self.obstacle_stage = 5
         super().__init__(cfg, render_mode, **kwargs)
         self.obstacle_stages = torch.full(
             (self.num_envs,),
@@ -55,7 +55,7 @@ class UnicycleEnv(DirectRLEnv):
         # ==========================================
         # 報酬用変数
         # ==========================================
-        self.obstacle_passed = torch.zeros((self.num_envs, 2), dtype=torch.bool, device=self.device)
+        self.obstacle_passed = torch.zeros((self.num_envs, 4), dtype=torch.bool, device=self.device)
         self.prev_root_pos = torch.zeros(
             (self.num_envs, 3),
             device=self.device
@@ -1058,7 +1058,7 @@ class UnicycleEnv(DirectRLEnv):
                 pos = torch.zeros((num_envs, 3), device=self.device)
                 pos[:, 0] = 3.0
                 pos[:, 1] = y
-                pos[:, 2] = 0.25
+                pos[:, 2] = 0.5
                 obstacle_state = obstacle.data.default_root_state[env_ids].clone()
                 obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)

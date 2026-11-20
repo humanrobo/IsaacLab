@@ -33,50 +33,10 @@ class HumanoidAmpEnv(DirectRLEnv):
     cfg: HumanoidAmpEnvCfg
 
     def __init__(self, cfg: HumanoidAmpEnvCfg, render_mode: str | None = None, **kwargs):
+        # 障害物ステージ
+        self.obstacle_stage = 10
         super().__init__(cfg, render_mode, **kwargs)
-        self.contact_sensor = self.scene.sensors["contact_forces"]
-        self.left_foot_sensor_idx = self.contact_sensor.body_names.index("left_foot")
-        self.right_foot_sensor_idx = self.contact_sensor.body_names.index("right_foot")
-        # --- クラスの初期化（__init__など）に追加 ---------------------
-        # # 確認用コード（実行するとターミナルにリンク名一覧が出ます）
-        # print("--- H1 Robot Available Body Names ---")
-        # print(self.robot.data.body_names)
-        # print(self.robot.data.joint_names)
-        # print(self.robot.data.body_names)
-        # print("-------------------------------------")
-        
-        # import torch
-        # from tqdm import tqdm  # 必ずファイルの先頭か、ここでインポートしてください
-
-        # パス設定（絶対パス）初期方向目標の確率分布
-        self.prob_file = "/home/matsuno/IsaacLab/scripts/my_evaluate_project/output/yaw_prob_distribution.pt"
-
-        # ログ文字列を一度組み立てる
-        log_msg = "\n" + "="*50 + "\n"
-        if os.path.exists(self.prob_file):
-            log_msg += f"🔥【SUCCESS】確率分布ファイルを検出しました！: {self.prob_file}\n"
-            log_msg += f"[Env] Loading target yaw distribution from {self.prob_file}\n"
-            
-            # データのロードとデバイス転送
-            dist_data = torch.load(self.prob_file, map_location=self.device)
-            self.yaw_bin_probs = dist_data["probabilities"].to(self.device)
-            
-            log_msg += f"📊 読み込んだ確率分布: {self.yaw_bin_probs.tolist()}\n"
-            self.use_biased_yaw = True
-        else:
-            log_msg += f"❌【WARNING】確率分布ファイルが見つかりません: {self.prob_file}\n"
-            log_msg += "[Env] No distribution file found. Using uniform random yaw.\n"
-            log_msg += "🎲 デフォルトの一様ランダム（通常のウォーク）で動きます。\n"
-            self.use_biased_yaw = False
-        log_msg += "="*50 + "\n"
-        # tqdm.write を使ってプログレスバーを壊さずに出力！
-        tqdm.write(log_msg)
-        # --- クラスの初期化（__init__など）に追加終了 ----------------
-
         #追加
-        # self.target_yaw = torch.deg2rad(
-        #     torch.randint(-9, 10, (1,), device=self.device).float() * 10.0
-        # ).expand(self.num_envs).clone()
         self.target_yaw = torch.zeros(self.num_envs, device=self.device)
         # action offset and scale
         dof_lower_limits = self.robot.data.soft_joint_pos_limits[0, :, 0]
@@ -97,20 +57,24 @@ class HumanoidAmpEnv(DirectRLEnv):
             self.num_envs,
             device=self.device,
         )
-        # ロボットを横一列に並べる
-        # self.scene.env_origins[:, 0] = 0.0
-        # self.scene.env_origins[:, 1] = (
-        #     torch.arange(self.num_envs, device=self.device) - (self.num_envs - 1) / 2
-        # ) * 2.0
         # 膝立ち判定用のカウンタ
         self.knee_down_count = torch.zeros(
             self.num_envs,
             dtype=torch.int32,
             device=self.device,
         )
+        #目標値ノイズ
+        self.noise_v_std = 0.15
+        # 10 stepごとにノイズを入れるstepを2つ選択
+        self.noise_interval = 10
+        self.noise_steps_per_interval = 2
+        self.noise_block_id = torch.full(
+            (self.num_envs,), -1, device=self.device, dtype=torch.long
+        )
+        self.noise_step_indices = torch.zeros(
+            (self.num_envs, 2), device=self.device, dtype=torch.long
+        )
 
-        self.use_action_noise = False
-        
         # load motion
         self._motion_loader = MotionLoader(motion_file=self.cfg.motion_file, device=self.device)
 
@@ -165,33 +129,20 @@ class HumanoidAmpEnv(DirectRLEnv):
             joint_ids, _ = self.robot.find_joints(joint_name)
             if len(joint_ids) > 0:
                 self.joint_motion_weights[joint_ids[0]] = weight
-        #記録用
-        self.omega_log_path = "/tmp/omega_log.csv"
-        with open(self.omega_log_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "step",
-                "target_omega",
-                "root_omega",
-                "head_omega",
-                "waist_omega",
-                "omega_error",
-                "target_yaw",
-                "direction_error",
-            ])
-        #足の接触力
-        os.makedirs("/tmp/humanoid_debug", exist_ok=True)
-        self._contact_csv_file = open(
-            "/tmp/humanoid_debug/foot_contact_force_false.csv",
-            "w",
-            newline=""
+        #ロバスト性向上用
+        # Push Recovery
+        self.push_interval = 3.0  # 外力を加える間隔 [秒]
+        self.push_duration = 0.1  # 外力を加える時間 [秒]
+        self.push_force_range = (0.0, 100.0)  # 外力の大きさ [N]
+        self.push_timer = torch.zeros(
+            self.num_envs, device=self.device
         )
-        self._contact_csv_writer = csv.writer(self._contact_csv_file)
-        self._contact_csv_writer.writerow([
-            "step",
-            "left_fx", "left_fy", "left_fz", "left_force_mag",
-            "right_fx", "right_fy", "right_fz", "right_force_mag",
-        ])
+        self.push_duration_timer = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self.push_force = torch.zeros(
+            (self.num_envs, 3), device=self.device
+        )
 
         # reconfigure AMP observation space according to the number of observations and create the buffer
         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
@@ -202,7 +153,40 @@ class HumanoidAmpEnv(DirectRLEnv):
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
-        self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
+        #障害物配置
+        if self.obstacle_stage in [1, 2, 3, 4, 5, 7, 9, 10]:
+            self.obstacle1 = RigidObject(self.cfg.obstacle1)
+            self.scene.rigid_objects["obstacle1"] = self.obstacle1
+        if self.obstacle_stage in [2, 5, 7, 9, 10]:
+            self.obstacle2 = RigidObject(self.cfg.obstacle2)
+            self.scene.rigid_objects["obstacle2"] = self.obstacle2
+        if self.obstacle_stage == 5:
+            self.obstacle3 = RigidObject(self.cfg.obstacle3)
+            self.scene.rigid_objects["obstacle3"] = self.obstacle3
+        if self.obstacle_stage in [5, 6, 11]:
+            self.obstacle_long = RigidObject(self.cfg.obstacle_long)
+            self.scene.rigid_objects["obstacle_long"] = self.obstacle_long
+        if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
+            self.obstacle_wallr = RigidObject(self.cfg.obstacle_wallr)
+            self.scene.rigid_objects["obstacle_wallr"] = self.obstacle_wallr
+        if self.obstacle_stage in [7, 8, 9, 10, 11, 12]:
+            self.obstacle_walll = RigidObject(self.cfg.obstacle_walll)
+            self.scene.rigid_objects["obstacle_walll"] = self.obstacle_walll
+        if self.obstacle_stage in [12]:
+            self.obstacle_wallf = RigidObject(self.cfg.obstacle_wallf)
+            self.scene.rigid_objects["obstacle_wallf"] = self.obstacle_wallf
+        if self.obstacle_stage in [12]:
+            self.obstacle_wallb = RigidObject(self.cfg.obstacle_wallb)
+            self.scene.rigid_objects["obstacle_wallb"] = self.obstacle_wallb
+        if self.obstacle_stage in [8, 9, 10]:
+            self.obstacle_pushable1 = RigidObject(self.cfg.obstacle_pushable1)
+            self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
+        if self.obstacle_stage in [10]:
+            self.obstacle_pushable2 = RigidObject(self.cfg.obstacle_pushable2)
+            self.scene.rigid_objects["obstacle_pushable2"] = self.obstacle_pushable2
+        if self.obstacle_stage in [10]:
+            self.obstacle_pushable3 = RigidObject(self.cfg.obstacle_pushable3)
+            self.scene.rigid_objects["obstacle_pushable3"] = self.obstacle_pushable3
         # add ground plane
         spawn_ground_plane(
             prim_path="/World/ground",
@@ -226,115 +210,124 @@ class HumanoidAmpEnv(DirectRLEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-        #不具合確認用障害物
-        self.scene.rigid_objects["obstacle_pushable1"] = self.obstacle_pushable1
-        self.contact_sensor = ContactSensor(self.cfg.contact_forces)
-        self.scene.sensors["contact_forces"] = self.contact_sensor
-
-    def _log_foot_contact_force(self):
-
-        forces = self.contact_sensor.data.net_forces_w[0]
-
-        left_force = forces[self.left_foot_sensor_idx]
-        right_force = forces[self.right_foot_sensor_idx]
-
-        left_mag = torch.norm(left_force)
-        right_mag = torch.norm(right_force)
-
-        self._contact_csv_writer.writerow([
-            self.common_step_counter,
-            left_force[0].item(),
-            left_force[1].item(),
-            left_force[2].item(),
-            left_mag.item(),
-            right_force[0].item(),
-            right_force[1].item(),
-            right_force[2].item(),
-            right_mag.item(),
-        ])
-
-        self._contact_csv_file.flush()
-
-    def _log_debug_data(self):
-        # env0のみ記録
-        if not hasattr(self, "_debug_csv"):
-            os.makedirs("/tmp/humanoid_debug", exist_ok=True)
-            self._debug_file = open(
-                "/tmp/humanoid_debug/kinematic_true_debug.csv",
-                "w",
-                newline=""
-            )
-            self._debug_csv = None
-            self._debug_step = 0
-
-        robot = self.robot
-        data = robot.data
-
-        if self._debug_csv is None:
-            self._debug_csv = csv.writer(self._debug_file)
-            header = ["step", "time"]
-
-            # Joint
-            for name in data.joint_names:
-                header += [
-                    f"{name}_pos",
-                    f"{name}_vel",
-                    f"{name}_acc",
-                ]
-
-            # Body
-            for name in data.body_names:
-                # Position
-                for axis in ["x", "y", "z"]:
-                    header.append(f"{name}_pos_{axis}")
-
-                # Linear velocity
-                for axis in ["x", "y", "z"]:
-                    header.append(f"{name}_linvel_{axis}")
-
-                # Angular velocity
-                for axis in ["x", "y", "z"]:
-                    header.append(f"{name}_angvel_{axis}")
-
-                # Quaternion
-                for axis in ["w", "x", "y", "z"]:
-                    header.append(f"{name}_quat_{axis}")
-
-            self._debug_csv.writerow(header)
-
-        row = [
-            self._debug_step,
-            self._debug_step * self.physics_dt,
-        ]
-
-        # Joint data
-        for i in range(len(data.joint_names)):
-            row += [
-                data.joint_pos[0, i].item(),
-                data.joint_vel[0, i].item(),
-                data.joint_acc[0, i].item(),
-            ]
-
-        # Body data (World Frame)
-        for i in range(len(data.body_names)):
-            pos = data.body_pos_w[0, i]
-            quat = data.body_quat_w[0, i]
-            lin_vel = data.body_lin_vel_w[0, i]
-            ang_vel = data.body_ang_vel_w[0, i]
-
-            row += pos.tolist()
-            row += lin_vel.tolist()
-            row += ang_vel.tolist()
-            row += quat.tolist()
-
-        self._debug_csv.writerow(row)
-
-        self._debug_step += 1
-
-        if self._debug_step % 100 == 0:
-            self._debug_file.flush()
+    def _update_push_force(self):
+        dt = self.step_dt
+        # 外力を加えるタイミングを更新
+        self.push_timer += dt
+        # 外力を加えている時間を更新
+        active = self.push_duration_timer > 0
+        self.push_duration_timer[active] -= dt
+        # 外力終了
+        ended = self.push_duration_timer <= 0
+        self.push_force[ended] = 0.0
+        # 新しい外力を発生させる環境
+        trigger = (
+            (self.push_timer >= self.push_interval)
+            & (self.push_duration_timer <= 0)
+        )
+        if trigger.any():
+            num_trigger = trigger.sum()
+            magnitude = torch.empty(
+                (self.num_envs,), device=self.device
+            ).uniform_(*self.push_force_range)[trigger]
+            angle = torch.rand(
+                (self.num_envs,), device=self.device
+            ) * (2.0 * torch.pi)
+            angle = angle[trigger]
+            self.push_force[trigger, 0] = magnitude * torch.cos(angle)
+            self.push_force[trigger, 1] = magnitude * torch.sin(angle)
+            self.push_force[trigger, 2] = 0.0
+            self.push_duration_timer[trigger] = self.push_duration
+            self.push_timer[trigger] = 0.0
+        # 外力を適用
+        body_id = self.robot.body_names.index("pelvis")
+        force_data = torch.zeros(
+            (self.num_envs, self.robot.num_bodies, 3),
+            device=self.device,
+        )
+        torque_data = torch.zeros_like(force_data)
+        force_data[:, body_id, :] = self.push_force
+        self.robot.root_physx_view.apply_forces_and_torques_at_position(
+            force_data=force_data,
+            torque_data=torque_data,
+            position_data=None,
+            indices=torch.arange(
+                self.num_envs,
+                device=self.device,
+                dtype=torch.long,
+            ),
+            is_global=True,
+        )
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        dt = self.cfg.sim.dt * self.cfg.decimation
+        # # 1秒経過した環境
+        # elapsed_steps = self.episode_length_buf
+        # stop_steps = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
+        # mask = elapsed_steps >= stop_steps
+        # self.target_v[mask] = 0.0
+        # # 3秒経過した環境の目標速度を0にする
+        # mask = (
+        #     (self.episode_length_buf >= self.next_command_step)
+        #     & (self.target_v > 0.0)
+        # )
+        # self.target_v[mask] = 0.0
+        # # =====================
+        # # 7:3に環境分ける
+        # min_interval = int(1.0 / dt)
+        # max_interval = int(5.0 / dt)
+        # split = int(self.num_envs * 0.7)
+        # # 次回コマンド更新ステップに到達した環境
+        mask = self.episode_length_buf >= self.next_command_step
+        # env_ids = torch.arange(self.num_envs, device=self.device)
+        # # A：通常歩行（70%）
+        # mask_a = mask & (env_ids < split)
+        # num_a = int(mask_a.sum().item())
+        # if num_a > 0:
+        #     self.target_v[mask_a] = torch.rand(
+        #         num_a, device=self.device
+        #     ) * 1.0
+        #     self.target_omega[mask_a] = (
+        #         torch.rand(num_a, device=self.device) * 2.0 - 1.0
+        #     )
+        #     self.next_command_step[mask_a] = (
+        #         self.episode_length_buf[mask_a]
+        #         + torch.randint(
+        #             min_interval,
+        #             max_interval + 1,
+        #             (num_a,),
+        #             device=self.device,
+        #         )
+        #     )
+        # # B：停止対応（30%）
+        # mask_b = (env_ids >= split) & (
+        #     self.episode_length_buf >= int(10.0 / dt)
+        # )
+        # self.target_v[mask_b] = 0.0
+        # # =====================
+        # # ========================================================
+        # # 1. 1〜2秒ごとに目標速度と角速度をランダムに更新する処理
+        # # ========================================================
+        # min_interval = int(1.0 / dt)  # 1秒分のステップ数
+        # max_interval = int(5.0 / dt)  # 2秒分のステップ数
+        # # 次回コマンド更新ステップに到達した環境のマスクを取得
+        # mask = self.episode_length_buf >= self.next_command_step
+        # num = int(mask.sum().item())
+        # if num > 0:
+        #     # 進行速度を 0.5 ～ 1.0 m/s の間でランダムに変更
+        #     self.target_v[mask] = torch.rand(num, device=self.device) * 1.0 + 0.0
+        #     # 角速度を -1.0 ～ 1.0 rad/s の間でランダムに変更
+        #     self.target_omega[mask] = torch.rand(num, device=self.device) * 2.0 - 1.0
+        #     # 次回の更新タイミングを「今から 1〜2秒後」に再設定
+        #     self.next_command_step[mask] = (
+        #         self.episode_length_buf[mask]
+        #         + torch.randint(
+        #             min_interval,
+        #             max_interval + 1,
+        #             (num,),
+        #             device=self.device,
+        #         )
+        #     )
         # --- 10秒ごとに目標角速度をランダムに更新する処理 ---
         # interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
         # mask = self.episode_length_buf >= self.next_command_step
@@ -352,18 +345,23 @@ class HumanoidAmpEnv(DirectRLEnv):
         #         self.episode_length_buf[mask] + interval
         #     )
         # 目標角速度を積分して目標方向を更新
-        dt = self.cfg.sim.dt * self.cfg.decimation
         self.target_yaw = torch.atan2(
             torch.sin(self.target_yaw + self.target_omega * dt),
             torch.cos(self.target_yaw + self.target_omega * dt),
         )
         # ----------------------------------------------------
+        #アクションノイズ
+        self.use_action_noise = False
         if self.use_action_noise:
-            print("Action noise: ON")
+            if not hasattr(self, "_noise_printed"):
+                print("Action noise: ON")
+                self._noise_printed = True
             noise_std = 0.05
             noise = torch.randn_like(actions) * noise_std
             actions = actions + noise
         self.actions = torch.clamp(actions, -1.0, 1.0)
+        # Push Recovery
+        # self._update_push_force()
 
     def _apply_action(self):
         target = self.action_offset + self.action_scale * self.actions
@@ -409,8 +407,55 @@ class HumanoidAmpEnv(DirectRLEnv):
             ang_vel_w,
             key_pos_w,
         )      
-        velocity_error = self.target_v - local_lin_vel[:, 0]
-        omega_error = self.target_omega - local_ang_vel[:, 2]
+        # 10 stepごとにノイズを入れるstepをランダムに選択
+        current_block = torch.div(
+            self.episode_length_buf,
+            self.noise_interval,
+            rounding_mode="floor",
+        )
+        new_block_mask = current_block != self.noise_block_id
+        if new_block_mask.any():
+            num_new = int(new_block_mask.sum().item())
+            random_scores = torch.rand(
+                (num_new, self.noise_interval),
+                device=self.device,
+            )
+            selected_steps = torch.topk(
+                random_scores,
+                k=self.noise_steps_per_interval,
+                dim=1,
+            ).indices
+            self.noise_step_indices[new_block_mask] = selected_steps
+            self.noise_block_id[new_block_mask] = current_block[new_block_mask]
+        # 現在のstepにノイズを入れるか判定
+        step_in_block = self.episode_length_buf % self.noise_interval
+        noise_mask = (
+            step_in_block.unsqueeze(1) == self.noise_step_indices
+        ).any(dim=1)
+        # 観測用目標値
+        target_v_obs = self.target_v.clone()
+        target_omega_obs = self.target_omega.clone()
+        # 選択されたstepだけノイズを加算
+        if noise_mask.any():
+            noise_v = torch.rand_like(target_v_obs[noise_mask]) * 2.0 - 1.0
+            noise_omega = torch.rand_like(target_omega_obs[noise_mask]) * 2.0 - 1.0
+            target_v_obs[noise_mask] += noise_v * self.noise_v_std
+            target_omega_obs[noise_mask] += noise_omega * 1.0
+            # # Env 0のノイズ適用前後を表示
+            # env_ids = torch.where(noise_mask)[0]
+            # for i, env_id in enumerate(env_ids):
+            #     if env_id.item() == 0:
+            #         print(
+            #             f"[Noise] step={self.episode_length_buf[env_id].item()} | "
+            #             f"target_omega={self.target_omega[env_id].item():.3f} -> "
+            #             f"obs_omega={target_omega_obs[env_id].item():.3f} "
+            #             f"(noise={noise_omega[i].item():+.3f})"
+            #         )
+        velocity_error = target_v_obs - local_lin_vel[:, 0]
+        omega_error = target_omega_obs - local_ang_vel[:, 2]
+        
+        # velocity_error = self.target_v - local_lin_vel[:, 0]
+        # omega_error = self.target_omega - local_ang_vel[:, 2]
         # omega_error = torch.zeros_like(omega_error) #一旦無効
         policy_obs = compute_policy_obs(
             self.robot.data.joint_pos,
@@ -516,10 +561,6 @@ class HumanoidAmpEnv(DirectRLEnv):
         #             f"Current omega: {local_ang_vel[0, 2].item():.3f} rad/s\n"
         #             f"yaw          : {robot_yaw[0].item():.3f} rad\n"
         #         )
-
-        self._log_foot_contact_force()
-        self._log_debug_data()
-
         return {"policy": policy_obs}
 
     def _get_rewards(self) -> torch.Tensor:
@@ -646,7 +687,7 @@ class HumanoidAmpEnv(DirectRLEnv):
             )
 
         # env0の速度・角速度をログに出力
-        if self.common_step_counter % 50 == 0:
+        if self.common_step_counter % 5 == 0:
             with open("/tmp/env0_velocity.log", "a") as f:
                 f.write(
                     f"step={self.common_step_counter} "
@@ -721,6 +762,12 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.prev_joint_pos[env_ids] = self.robot.data.joint_pos[env_ids].clone()
         self.prev_yaw[env_ids] = yaw
         self.direction_reached[env_ids] = False
+        #ロバスト性向上用
+        self.push_timer[env_ids] = 0.0
+        self.push_duration_timer[env_ids] = 0.0
+        self.push_force[env_ids] = 0.0
+        # 目標値ノイズ用
+        self.noise_block_id[env_ids] = -1
         # 初期目標方向をランダムに設定
         # self.target_yaw[env_ids] = torch.deg2rad(
         #     torch.randint(-9, 10, (len(env_ids),), device=self.device).float() * 10.0
@@ -737,34 +784,63 @@ class HumanoidAmpEnv(DirectRLEnv):
         #         device=self.device,
         #     )
         # )
+        #1_初期目標値の設定
         self.target_yaw[env_ids] = 0.0
-        self.target_v[env_ids] =0.0      #目標進行速度
+        self.target_v[env_ids] =0.0    #目標進行速度
         self.target_omega[env_ids] = 0.0    #目標角速度
-        # min_interval = int(1.0 / (self.cfg.sim.dt * self.cfg.decimation))
-        # max_interval = int(2.0 / (self.cfg.sim.dt * self.cfg.decimation))
-        # mask = self.episode_length_buf >= self.next_command_step
-        # num = int(mask.sum().item())
-        # if num > 0:
-        #     self.target_v[mask] = (
-        #         torch.rand(num, device=self.device) * 0.5 + 0.5
-        #     )
-        #     # self.target_omega[mask] = (
-        #     #     torch.rand(num, device=self.device) * 2.0 - 1.0
-        #     # )
-        #     self.next_command_step[mask] = (
-        #         self.episode_length_buf[mask]
-        #         + torch.randint(
-        #             min_interval,
-        #             max_interval + 1,
-        #             (num,),
-        #             device=self.device,
-        #         )
-        #     )
+        # 1秒後に目標速度を0にする
+        # self.next_command_step[env_ids] = (
+        #     self.episode_length_buf[env_ids]
+        #     + int(3.0 / (self.cfg.sim.dt * self.cfg.decimation))
+        # )
+        # 2_1〜2秒で目標変えるprepyhsixへ
+        # self.next_command_step[env_ids] = self.episode_length_buf[env_ids]
+        # #3_進行速度：0～1.0 m/sでランダム
         # self.target_v[env_ids] = torch.rand(len(env_ids), device=self.device) * 1.0
+        # #3_角速度：-1～1 rad/sでランダム
         # self.target_omega[env_ids] = torch.rand(len(env_ids), device=self.device) * 2.0 - 1.0
         
+        #4_10秒ごとのランダム変更_prephysicへ
         # interval = int(10.0 / (self.cfg.sim.dt * self.cfg.decimation))
         # self.next_command_step[env_ids] = self.episode_length_buf[env_ids] + interval
+        # # =====================
+        # # 7:3に環境分ける
+        # split = int(self.num_envs * 0.7)
+        # # Bグループ（30%）：ランダム速度、角速度0
+        # env_b = env_ids[env_ids >= split]
+        # self.target_v[env_b] = torch.rand(
+        #     len(env_b), device=self.device
+        # ) * 1.0
+        # self.target_omega[env_b] = 0.0
+        # # =====================
+        # =====================
+        # 障害物配置
+        # =====================
+        num_envs = len(env_ids)
+
+        if self.obstacle_stage == 0:
+            # 障害物なし
+            pass
+
+        elif self.obstacle_stage == 5:
+            # 障害物4個・ランダム位置（スポーン周辺を除外）
+            for obstacle in [self.obstacle1, self.obstacle2, self.obstacle3, self.obstacle_long]:
+                pos = torch.zeros((num_envs, 3), device=self.device)
+                pos[:, 0] = torch.empty(num_envs, device=self.device).uniform_(-3.0, 3.0)
+                pos[:, 1] = torch.empty(num_envs, device=self.device).uniform_(-3.0, 3.0)
+                pos[:, 2] = 0.25
+                # スポーン位置 (0, 0) から1.0m以内なら再抽選
+                dist = torch.norm(pos[:, :2], dim=1)
+                mask = dist < 1.0
+                while mask.any():
+                    n = int(mask.sum().item())
+                    pos[mask, 0] = torch.empty(n, device=self.device).uniform_(-0.5, 4.5)
+                    pos[mask, 1] = torch.empty(n, device=self.device).uniform_(-3.5, 3.5)
+                    dist = torch.norm(pos[:, :2], dim=1)
+                    mask = dist < 1.0
+                obstacle_state = obstacle.data.default_root_state[env_ids].clone()
+                obstacle_state[:, :3] = pos + self.scene.env_origins[env_ids]
+                obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
     # reset strategies
 
     def _reset_strategy_default(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

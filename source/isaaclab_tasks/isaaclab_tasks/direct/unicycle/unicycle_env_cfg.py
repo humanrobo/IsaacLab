@@ -79,7 +79,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle1 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle1",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(0.5, 0.5, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -93,7 +93,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle2 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle2",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(0.5, 0.5, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -107,7 +107,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle3 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle3",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.5, 0.5),
+            size=(0.5, 0.5, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -120,7 +120,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle_long = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstaclelong",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 2.0, 0.5),
+            size=(0.5, 2.0, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -133,7 +133,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle_wallr = RigidObjectCfg(
         prim_path="/World/envs/env_.*/ObstacleWallR",
         spawn=sim_utils.CuboidCfg(
-            size=(8.0, 0.5, 0.5),
+            size=(8.0, 0.5, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -146,7 +146,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle_walll = RigidObjectCfg(
         prim_path="/World/envs/env_.*/ObstacleWallL",
         spawn=sim_utils.CuboidCfg(
-            size=(8.0, 0.5, 0.5),
+            size=(8.0, 0.5, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -159,7 +159,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle_wallf = RigidObjectCfg(
         prim_path="/World/envs/env_.*/ObstacleWallF",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 2.8, 0.5),
+            size=(0.5, 2.8, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
             ),
@@ -187,7 +187,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle_pushable1 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle1",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 0.5),
+            size=(0.5, 0.4, 1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
@@ -201,7 +201,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle_pushable2 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle2",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 0.5),
+            size=(0.5, 0.4, 1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),
@@ -215,7 +215,7 @@ class UnicycleEnvCfg(DirectRLEnvCfg):
     obstacle_pushable3 = RigidObjectCfg(
         prim_path="/World/envs/env_.*/PushableObstacle3",
         spawn=sim_utils.CuboidCfg(
-            size=(0.5, 0.4, 0.5),
+            size=(0.5, 0.4, 1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.0, 0.0, 1.0),
             ),

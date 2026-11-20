@@ -69,7 +69,7 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
             param.requires_grad_(False)
         self.unicycle_running_mean = checkpoint["observation_preprocessor"]["running_mean"].to(self.device).float()
         self.unicycle_running_variance = checkpoint["observation_preprocessor"]["running_variance"].to(self.device).float()
-        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=True, num_envs=self.num_envs,)
+        self._heightmap_generator_humanoid = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False, num_envs=self.num_envs,)
         # self._heightmap_generator = HeightMapGenerator(resolution=0.05, map_size=3.2, device=self.device, gui_enabled=False)
         self._unicycle_action = torch.zeros(self.num_envs, 2, device=self.device)
 
@@ -129,13 +129,13 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         self.actions = torch.clamp(actions, -1.0, 1.0)
         self._update_humanoid_heightmap()
         self._compute_unicycle_action()
-        #semseg各クラスがID割り当てられたときに、pushableのIDを探す
-        # if self.pushable_color is None:
-        #     semantic_info = self.camera_humanoid.data.info[0]["semantic_segmentation"]["idToLabels"]
-        #     self.pushable_color = next(
-        #         ast.literal_eval(k) for k, v in semantic_info.items()
-        #         if v.get("class") == "pushable"
-        #     )
+        # #semseg各クラスがID割り当てられたときに、pushableのIDを探す
+        if self.pushable_color is None:
+            semantic_info = self.camera_humanoid.data.info[0]["semantic_segmentation"]["idToLabels"]
+            self.pushable_color = next(
+                ast.literal_eval(k) for k, v in semantic_info.items()
+                if v.get("class") == "pushable"
+            )
         # 親クラスの処理を実行
         super()._pre_physics_step(actions)
 
@@ -232,8 +232,8 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
         # self.goal_yaw = robot_yaw + self._unicycle_action[:, 1] #n* prediction_time #n* turn_scale #n
         # self.goal_yaw = torch.atan2(torch.sin(self.goal_yaw), torch.cos(self.goal_yaw))
         # Unicycleの出力をHumanoidの目標速度・角速度に直接入力
-        # self.target_v = self._unicycle_action[:, 0]
-        # self.target_omega = self._unicycle_action[:, 1]
+        self.target_v = torch.clamp(self._unicycle_action[:, 0], min=0.0)
+        self.target_omega = self._unicycle_action[:, 1]
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         died, time_out = super()._get_dones()
@@ -298,5 +298,5 @@ class UnicycleHumanoid28Env(HumanoidAmpEnv):
                 obstacle.write_root_pose_to_sim(obstacle_state[:, :7], env_ids)
             for wall, y in [(self.obstacle_wallr, -2.0), (self.obstacle_walll, 2.0)]:
                 wall_state = wall.data.default_root_state[env_ids].clone()
-                wall_state[:, :3] = torch.tensor([3.0, y, 0.25], device=self.device) + self.scene.env_origins[env_ids]
+                wall_state[:, :3] = torch.tensor([3.0, y, 1.0], device=self.device) + self.scene.env_origins[env_ids]
                 wall.write_root_pose_to_sim(wall_state[:, :7], env_ids)
